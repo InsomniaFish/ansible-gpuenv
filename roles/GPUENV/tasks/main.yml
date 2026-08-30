@@ -1,0 +1,48 @@
+---
+#===============================================================================
+# GPUENV role 主任务入口
+# 对应 install_GPUENV.md 在线安装流程（步骤 2 ~ 步骤 7）
+#===============================================================================
+
+- name: 前置检查
+  import_tasks: precheck.yml
+  tags: [gpuenv, precheck]
+
+- name: 安装编译依赖
+  import_tasks: build_deps.yml
+  tags: [gpuenv, deps]
+
+- name: 配置 NVIDIA CUDA 软件源
+  import_tasks: cuda_repo.yml
+  tags: [gpuenv, repo]
+
+- name: 安装 NVIDIA 显卡驱动
+  import_tasks: driver.yml
+  tags: [gpuenv, driver]
+
+- name: 安装 CUDA Toolkit
+  import_tasks: cuda_toolkit.yml
+  tags: [gpuenv, cuda]
+
+- name: 安装 nvidia-fabricmanager
+  import_tasks: fabricmanager.yml
+  tags: [gpuenv, fabricmanager]
+
+- name: 编译 gpu-burn
+  import_tasks: gpu_burn.yml
+  tags: [gpuenv, gpu_burn]
+
+- name: 安装 NCCL + nccl-tests（可选）
+  import_tasks: nccl.yml
+  when: gpuenv_install_nccl
+  tags: [gpuenv, nccl]
+
+- name: 安装 DCGM 监控（可选）
+  import_tasks: dcgm.yml
+  when: gpuenv_install_dcgm
+  tags: [gpuenv, dcgm]
+
+- name: 安装 nvidia-container-toolkit（可选）
+  import_tasks: container_toolkit.yml
+  when: gpuenv_install_container_toolkit
+  tags: [gpuenv, container_toolkit]

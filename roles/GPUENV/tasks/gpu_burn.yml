@@ -1,0 +1,91 @@
+---
+# 步骤 7：编译 gpu-burn（对应手册：在线下载源码并编译）
+
+- name: 跳过 gpu-burn（gpuenv_skip_gpu_burn=true）
+  debug:
+    msg: "已跳过 gpu-burn 下载编译"
+  when: gpuenv_skip_gpu_burn
+
+- name: 检查 gpu_burn 是否已编译
+  stat:
+    path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
+  register: gpu_burn_bin
+  when: not gpuenv_skip_gpu_burn
+
+- name: gpu_burn 已编译，跳过
+  debug:
+    msg: "gpu_burn 已编译 ({{ gpuenv_gpu_burn_dir }}/gpu_burn)，跳过"
+  when: >
+    not gpuenv_skip_gpu_burn
+    and not gpuenv_force
+    and gpu_burn_bin.stat.exists
+
+- name: 确保项目基准目录存在
+  file:
+    path: "{{ gpuenv_base_dir }}"
+    state: directory
+    mode: '0755'
+  when: >
+    not gpuenv_skip_gpu_burn
+    and (gpuenv_force or not gpu_burn_bin.stat.exists)
+
+- name: 下载 gpu-burn 源码
+  get_url:
+    url: "{{ gpuenv_gpu_burn_url }}"
+    dest: /tmp/gpu-burn-master.zip
+    mode: '0644'
+  when: >
+    not gpuenv_skip_gpu_burn
+    and (gpuenv_force or not gpu_burn_bin.stat.exists)
+
+- name: 清理旧源码目录
+  file:
+    path: "{{ gpuenv_gpu_burn_dir }}"
+    state: absent
+  when: >
+    not gpuenv_skip_gpu_burn
+    and (gpuenv_force or not gpu_burn_bin.stat.exists)
+
+- name: 解压 gpu-burn 源码（到项目基准目录）
+  unarchive:
+    src: /tmp/gpu-burn-master.zip
+    dest: "{{ gpuenv_base_dir }}"
+    remote_src: yes
+  when: >
+    not gpuenv_skip_gpu_burn
+    and (gpuenv_force or not gpu_burn_bin.stat.exists)
+
+- name: 编译 gpu-burn
+  command: make
+  args:
+    chdir: "{{ gpuenv_gpu_burn_dir }}"
+  register: gpu_burn_make
+  when: >
+    not gpuenv_skip_gpu_burn
+    and (gpuenv_force or not gpu_burn_bin.stat.exists)
+
+- name: 清理临时压缩包
+  file:
+    path: /tmp/gpu-burn-master.zip
+    state: absent
+  when: >
+    not gpuenv_skip_gpu_burn
+    and (gpuenv_force or not gpu_burn_bin.stat.exists)
+
+- name: 验证 gpu_burn 可执行文件
+  stat:
+    path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
+  register: gpu_burn_final
+  when: not gpuenv_skip_gpu_burn
+
+- name: gpu_burn 编译失败时报错
+  fail:
+    msg: "gpu_burn 编译失败，请检查编译日志"
+  when: >
+    not gpuenv_skip_gpu_burn
+    and not gpu_burn_final.stat.exists
+
+- name: gpu_burn 编译成功
+  debug:
+    msg: "gpu_burn 编译成功: {{ gpuenv_gpu_burn_dir }}/gpu_burn"
+  when: not gpuenv_skip_gpu_burn

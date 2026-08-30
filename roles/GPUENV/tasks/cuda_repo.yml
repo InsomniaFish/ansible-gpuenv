@@ -1,0 +1,30 @@
+---
+# 步骤 3：配置 NVIDIA 官方 CUDA 软件源（安装 cuda-keyring）
+
+- name: 检查 cuda-keyring 是否已安装
+  command: dpkg-query -W -f='${db:Status-Abbrev}' cuda-keyring
+  register: keyring_status
+  changed_when: false
+  failed_when: false
+
+- name: 下载 cuda-keyring 软件源密钥包
+  get_url:
+    url: "{{ gpuenv_repo_base_url }}/{{ gpuenv_keyring_deb }}"
+    dest: /tmp/cuda-keyring.deb
+    mode: '0644'
+  when: gpuenv_force or keyring_status.rc != 0 or not (keyring_status.stdout | trim).startswith('ii')
+
+- name: 安装 cuda-keyring
+  apt:
+    deb: /tmp/cuda-keyring.deb
+  when: gpuenv_force or keyring_status.rc != 0 or not (keyring_status.stdout | trim).startswith('ii')
+
+- name: 清理临时文件
+  file:
+    path: /tmp/cuda-keyring.deb
+    state: absent
+  when: gpuenv_force or keyring_status.rc != 0 or not (keyring_status.stdout | trim).startswith('ii')
+
+- name: 刷新软件源缓存
+  apt:
+    update_cache: yes

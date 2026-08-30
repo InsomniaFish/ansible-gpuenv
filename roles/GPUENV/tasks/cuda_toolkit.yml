@@ -1,0 +1,61 @@
+---
+# 步骤 5：安装 CUDA Toolkit（对应手册：apt 方式仅安装 Toolkit 本体，不含驱动）
+
+- name: 设置 CUDA 包名
+  set_fact:
+    gpuenv_cuda_pkg: "cuda-toolkit-{{ gpuenv_cuda_version | replace('.', '-') }}"
+
+- name: 检查 CUDA Toolkit 是否已安装（仅完全安装状态 ii 视为已安装）
+  shell: |
+    status=$(dpkg-query -W -f='${db:Status-Abbrev}' {{ gpuenv_cuda_pkg }} 2>/dev/null | cut -c1-2)
+    [ "$status" = "ii" ] && dpkg-query -W -f='${Version}' {{ gpuenv_cuda_pkg }}
+  register: cuda_installed
+  changed_when: false
+  failed_when: false
+
+- name: 设置已安装 CUDA 版本事实
+  set_fact:
+    gpuenv_cuda_installed_ver: "{{ cuda_installed.stdout | trim }}"
+
+- name: 校验源中存在目标 CUDA 包
+  shell: apt-cache show {{ gpuenv_cuda_pkg }}
+  register: cuda_pkg_check
+  changed_when: false
+  failed_when: false
+
+- name: CUDA 包不存在时报错
+  fail:
+    msg: "源中未找到 {{ gpuenv_cuda_pkg }}，请检查 gpuenv_cuda_version 变量"
+  when: cuda_pkg_check.rc != 0
+
+- name: 安装 CUDA Toolkit
+  apt:
+    name: "{{ gpuenv_cuda_pkg }}"
+    state: present
+  when: >
+    gpuenv_force
+    or gpuenv_cuda_installed_ver == ''
+    or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
+
+- name: CUDA 已安装且版本一致，跳过
+  debug:
+    msg: "{{ gpuenv_cuda_pkg }} 已安装 {{ gpuenv_cuda_installed_ver }}，与目标版本一致，跳过"
+  when: >
+    not gpuenv_force
+    and gpuenv_cuda_installed_ver != ''
+    and gpuenv_cuda_version in gpuenv_cuda_installed_ver
+
+- name: 配置 CUDA 环境变量
+  template:
+    src: cuda.sh.j2
+    dest: "{{ gpuenv_cuda_profile }}"
+    mode: '0644'
+
+- name: 验证 nvcc 可用
+  command: /usr/local/cuda/bin/nvcc -V
+  register: nvcc_check
+  changed_when: false
+
+- name: 显示 nvcc 版本
+  debug:
+    msg: "{{ nvcc_check.stdout_lines[-2:] }}"

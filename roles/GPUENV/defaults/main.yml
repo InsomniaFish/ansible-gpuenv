@@ -1,0 +1,54 @@
+---
+#===============================================================================
+# GPUENV role 默认变量
+# 注意：软件源 URL 与组件版本已独立维护在 vars/gpuenv_repos.yml
+# （由 site.yml 通过 vars_files 加载），本文件仅保留行为开关与路径配置。
+#===============================================================================
+
+# --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供） ---
+gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
+gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
+gpuenv_driver_version: "550.163.01"
+gpuenv_cuda_version: "12.4"
+gpuenv_fm_version: ""
+
+# --- 行为开关 ---
+gpuenv_skip_gpu_burn: false           # 是否跳过 gpu-burn 下载编译
+gpuenv_force: false                   # 是否忽略已安装检测，强制重装
+gpuenv_reboot_after_driver: false     # 驱动安装后是否自动重启（生产验收建议开启）
+
+# --- 可选组件开关（默认不装，按需开启） ---
+gpuenv_install_nccl: false            # NCCL 库 + nccl-tests（多卡通信与带宽测试）
+gpuenv_install_dcgm: false            # DCGM 数据中心 GPU 管理器（硬件诊断/监控）
+gpuenv_install_container_toolkit: false  # nvidia-container-toolkit（容器内使用 GPU）
+
+# --- 路径配置（以项目目录为基准路径，统一在此管理） ---
+# 项目基准目录（控制节点上本项目的目录；远程节点部署时会自动创建）
+gpuenv_base_dir: "/root/ansible-gpuenv"
+# gpu-burn 源码与编译目录（基于基准目录的相对位置）
+gpuenv_gpu_burn_dir: "{{ gpuenv_base_dir }}/gpu-burn-master"
+# nccl-tests 源码与编译目录（基于基准目录的相对位置）
+gpuenv_nccl_tests_dir: "{{ gpuenv_base_dir }}/nccl-tests-master"
+# CUDA 环境变量文件（系统固定位置，必须为绝对路径）
+gpuenv_cuda_profile: "/etc/profile.d/cuda.sh"
+
+# --- 驱动主系列号（由驱动版本自动推导，无需修改） ---
+gpuenv_driver_major: "{{ gpuenv_driver_version.split('.')[0] }}"
+
+# --- 驱动子包列表（指定版本时需全部锁定，避免依赖冲突） ---
+gpuenv_driver_subpackages:
+  - nvidia-driver
+  - nvidia-dkms
+  - nvidia-kernel-common
+  - nvidia-kernel-source
+  - nvidia-utils
+  - nvidia-compute-utils
+  - libnvidia-compute
+  - libnvidia-extra
+  - libnvidia-gl
+  - libnvidia-decode
+  - libnvidia-encode
+  - libnvidia-fbc1
+  - libnvidia-cfg1
+  - xserver-xorg-video-nvidia

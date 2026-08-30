@@ -1,0 +1,15 @@
+---
+#===============================================================================
+# GPU 环境组件卸载 playbook
+# 用法：
+#   ansible-playbook -i inventory.ini uninstall.yml                 # 卸载所有节点
+#   ansible-playbook -i inventory.ini uninstall.yml --limit node01  # 仅卸载指定节点
+#
+# 注意：卸载为破坏性操作，建议先用 check.yml 确认现状，并用 --limit 指定节点执行
+#===============================================================================
+- name: 卸载 GPU 环境组件
+  hosts: gpu_nodes
+  become: yes
+  gather_facts: yes
+  roles:
+    - GPUENV_UNINSTALL

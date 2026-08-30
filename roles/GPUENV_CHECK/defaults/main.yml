@@ -1,0 +1,13 @@
+---
+#===============================================================================
+# GPUENV_CHECK role 默认变量
+#===============================================================================
+
+# 项目基准目录（与 GPUENV role 保持一致）
+gpuenv_base_dir: "/root/ansible-gpuenv"
+
+# gpu-burn 安装目录（基于基准目录的相对位置）
+gpuenv_gpu_burn_dir: "{{ gpuenv_base_dir }}/gpu-burn-master"
+
+# CUDA 环境变量文件（系统固定位置）
+gpuenv_cuda_profile: "/etc/profile.d/cuda.sh"

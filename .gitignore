@@ -1,0 +1,9 @@
+# 主机清单（含密码凭据，禁止提交）
+inventory.ini
+
+# 编译产物与下载的源码目录
+gpu-burn-master/
+nccl-tests-master/
+
+# Ansible 重试文件
+*.retry

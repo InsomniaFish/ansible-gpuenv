@@ -1,0 +1,13 @@
+---
+#===============================================================================
+# GPU 环境组件检测 playbook（只读，不做任何修改）
+# 用法：
+#   ansible-playbook -i inventory.ini check.yml                 # 检测所有节点
+#   ansible-playbook -i inventory.ini check.yml --limit node01 # 仅检测指定节点
+#===============================================================================
+- name: 检测 GPU 环境组件安装状况
+  hosts: gpu_nodes
+  become: yes
+  gather_facts: yes
+  roles:
+    - GPUENV_CHECK

@@ -1,0 +1,77 @@
+---
+# 步骤 6：安装 nvidia-fabricmanager（对应手册：版本必须与驱动完全一致）
+
+- name: 设置 fabricmanager 目标版本（默认与驱动一致）
+  set_fact:
+    gpuenv_fm_target: "{{ gpuenv_fm_version if gpuenv_fm_version | length > 0 else gpuenv_driver_version }}"
+    gpuenv_fm_pkg: "nvidia-fabricmanager-{{ gpuenv_driver_major }}"
+
+- name: 检查 fabricmanager 是否已安装（仅完全安装状态 ii 视为已安装）
+  shell: |
+    status=$(dpkg-query -W -f='${db:Status-Abbrev}' {{ gpuenv_fm_pkg }} 2>/dev/null | cut -c1-2)
+    [ "$status" = "ii" ] && dpkg-query -W -f='${Version}' {{ gpuenv_fm_pkg }}
+  register: fm_installed
+  changed_when: false
+  failed_when: false
+
+- name: 设置已安装 fabricmanager 版本事实
+  set_fact:
+    gpuenv_fm_installed_ver: "{{ fm_installed.stdout | trim }}"
+
+- name: 查找源中与目标版本匹配的 fabricmanager 包版本
+  shell: >
+    apt-cache madison {{ gpuenv_fm_pkg }}
+    | awk -F'|' '{gsub(/ /,"",$2); print $2}'
+    | grep -F "{{ gpuenv_fm_target }}" | head -n 1
+  register: fm_repo_ver
+  changed_when: false
+
+- name: fabricmanager 版本不存在时报错
+  fail:
+    msg: "源中未找到 {{ gpuenv_fm_pkg }} 版本 {{ gpuenv_fm_target }}，请检查版本配置"
+  when: fm_repo_ver.stdout | trim | length == 0
+
+- name: 安装 fabricmanager（版本与驱动完全一致）
+  apt:
+    name: "{{ gpuenv_fm_pkg }}={{ fm_repo_ver.stdout | trim }}"
+    state: present
+  when: >
+    gpuenv_force
+    or gpuenv_fm_installed_ver == ''
+    or gpuenv_fm_target not in gpuenv_fm_installed_ver
+
+- name: fabricmanager 已安装且版本一致，跳过安装
+  debug:
+    msg: "{{ gpuenv_fm_pkg }} 已安装 {{ gpuenv_fm_installed_ver }}，与目标版本一致，跳过安装"
+  when: >
+    not gpuenv_force
+    and gpuenv_fm_installed_ver != ''
+    and gpuenv_fm_target in gpuenv_fm_installed_ver
+
+- name: 刷新 systemd 单元缓存（避免卸载后重装时单元加载异常）
+  systemd:
+    daemon_reload: yes
+
+- name: 设置 fabricmanager 开机自启
+  systemd:
+    name: nvidia-fabricmanager
+    enabled: yes
+
+- name: 启动 fabricmanager 服务（无 GPU / 无 NVLink 硬件时允许失败）
+  systemd:
+    name: nvidia-fabricmanager
+    state: started
+  register: fm_start
+  failed_when: false
+
+- name: 检查 fabricmanager 服务实际运行状态
+  command: systemctl is-active nvidia-fabricmanager
+  register: fm_active
+  changed_when: false
+  failed_when: false
+
+- name: fabricmanager 启动结果提示
+  debug:
+    msg: >-
+      {{ 'fabricmanager 服务已启动' if fm_active.stdout | trim == 'active' else
+         'fabricmanager 未运行（无 GPU / 无 NVLink 硬件时属正常现象）' }}

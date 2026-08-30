@@ -1,0 +1,19 @@
+---
+# 前置检查：确认目标为 Ubuntu 系统（对应手册环境说明）
+
+- name: 确认目标系统为 Ubuntu
+  assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+    fail_msg: "GPUENV role 仅支持 Ubuntu 系统，当前为 {{ ansible_distribution }}"
+    success_msg: "系统检查通过: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+- name: 显示安装计划
+  debug:
+    msg:
+      - "CUDA 源地址   : {{ gpuenv_repo_base_url }}"
+      - "gpu-burn 源  : {{ gpuenv_gpu_burn_url }}"
+      - "驱动版本      : {{ gpuenv_driver_version }}"
+      - "CUDA 版本     : {{ gpuenv_cuda_version }}"
+      - "fabricmanager : {{ gpuenv_fm_version | default(gpuenv_driver_version, true) }}"
+      - "强制重装      : {{ gpuenv_force }}"

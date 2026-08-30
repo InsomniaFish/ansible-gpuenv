@@ -1,0 +1,20 @@
+---
+#===============================================================================
+# GPU 环境部署 playbook
+# 软件源与版本配置独立维护在 vars/gpuenv_repos.yml，修改该文件即可指定版本。
+#
+# 用法：
+#   ansible-playbook -i inventory.ini site.yml                          # 按配置文件版本安装
+#   ansible-playbook -i inventory.ini site.yml \
+#     -e gpuenv_driver_version=550.127.05 -e gpuenv_cuda_version=12.4  # 临时覆盖版本
+#   ansible-playbook -i inventory.ini site.yml --tags driver           # 仅执行驱动步骤
+#   ansible-playbook -i inventory.ini site.yml -e gpuenv_force=true    # 强制重装
+#===============================================================================
+- name: 部署 GPU 环境（驱动 / CUDA / fabricmanager / gpu-burn）
+  hosts: gpu_nodes
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - vars/gpuenv_repos.yml
+  roles:
+    - GPUENV

@@ -1,0 +1,74 @@
+---
+# 可选组件：NCCL 库 + nccl-tests（多卡通信与带宽测试）
+# 启用方式：-e gpuenv_install_nccl=true
+
+- name: 安装 NCCL 库（libnccl2 / libnccl-dev）
+  apt:
+    name:
+      - libnccl2
+      - libnccl-dev
+    state: present
+
+- name: 安装 nccl-tests 编译依赖（make / openmpi）
+  apt:
+    name:
+      - make
+      - openmpi-bin
+      - libopenmpi-dev
+    state: present
+
+- name: 检查 nccl-tests 是否已编译
+  stat:
+    path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
+  register: nccl_tests_bin
+
+- name: nccl-tests 已编译，跳过
+  debug:
+    msg: "nccl-tests 已编译 ({{ gpuenv_nccl_tests_dir }}/build)，跳过"
+  when: not gpuenv_force and nccl_tests_bin.stat.exists
+
+- name: 下载 nccl-tests 源码
+  get_url:
+    url: "{{ gpuenv_nccl_tests_url }}"
+    dest: /tmp/nccl-tests-master.zip
+    mode: '0644'
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 清理旧源码目录
+  file:
+    path: "{{ gpuenv_nccl_tests_dir }}"
+    state: absent
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 解压 nccl-tests 源码（到项目基准目录）
+  unarchive:
+    src: /tmp/nccl-tests-master.zip
+    dest: "{{ gpuenv_base_dir }}"
+    remote_src: yes
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 编译 nccl-tests
+  command: make -j CUDA_HOME=/usr/local/cuda
+  args:
+    chdir: "{{ gpuenv_nccl_tests_dir }}"
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 清理临时压缩包
+  file:
+    path: /tmp/nccl-tests-master.zip
+    state: absent
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 验证 nccl-tests 编译产物
+  stat:
+    path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
+  register: nccl_tests_final
+
+- name: nccl-tests 编译失败时报错
+  fail:
+    msg: "nccl-tests 编译失败，请检查编译日志"
+  when: not nccl_tests_final.stat.exists
+
+- name: nccl-tests 编译成功
+  debug:
+    msg: "nccl-tests 编译成功，测试命令示例: {{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf -b 8 -e 128M -f 2 -g <GPU数>"

@@ -1,0 +1,32 @@
+---
+# 可选组件：DCGM 数据中心 GPU 管理器（硬件诊断 / 监控）
+# 启用方式：-e gpuenv_install_dcgm=true
+
+- name: 安装 datacenter-gpu-manager
+  apt:
+    name: datacenter-gpu-manager
+    state: present
+
+- name: 刷新 systemd 单元缓存
+  systemd:
+    daemon_reload: yes
+
+- name: 设置 nvidia-dcgm 开机自启并启动
+  systemd:
+    name: nvidia-dcgm
+    enabled: yes
+    state: started
+  register: dcgm_start
+  failed_when: false
+
+- name: 检查 nvidia-dcgm 服务实际运行状态
+  command: systemctl is-active nvidia-dcgm
+  register: dcgm_active
+  changed_when: false
+  failed_when: false
+
+- name: DCGM 启动结果提示
+  debug:
+    msg: >-
+      {{ 'DCGM 服务已启动（可用 dcgmi discovery -l / dcgmi diag 诊断）' if dcgm_active.stdout | trim == 'active' else
+         'DCGM 服务未运行（无 GPU 时属正常现象）' }}

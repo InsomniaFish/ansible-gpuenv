@@ -1,0 +1,61 @@
+---
+#===============================================================================
+# GPUENV_UNINSTALL role：卸载 GPU 环境组件
+# 卸载项：fabricmanager 服务 / 驱动 / CUDA / fabricmanager 包 / 环境变量 / gpu-burn
+# 对应 install_gpuenv.sh 的 uninstall 功能
+#===============================================================================
+
+- name: 确认卸载操作（危险操作提示）
+  debug:
+    msg: "即将在 {{ inventory_hostname }} 卸载全部 GPU 环境组件（驱动 / CUDA / fabricmanager / gpu-burn）"
+
+- name: 停止 fabricmanager 服务
+  systemd:
+    name: nvidia-fabricmanager
+    state: stopped
+  failed_when: false
+
+- name: 取消 fabricmanager 开机自启
+  systemd:
+    name: nvidia-fabricmanager
+    enabled: no
+  failed_when: false
+
+- name: 卸载 nvidia / cuda 相关软件包（purge 方式）
+  shell: >
+    apt-get remove -y --purge 'nvidia-*' 'libnvidia-*' 'cuda*'
+    || apt-get remove -y --purge $(dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2}' | tr '\n' ' ')
+  register: uninstall_pkgs
+  changed_when: "'Removing' in uninstall_pkgs.stdout or 'Purging' in uninstall_pkgs.stdout"
+  failed_when: false
+
+- name: 清理孤立依赖
+  apt:
+    autoremove: yes
+    purge: yes
+  when: gpuenv_uninstall_autoremove
+
+- name: 刷新 systemd 单元缓存（清除已卸载服务的单元残留）
+  systemd:
+    daemon_reload: yes
+
+- name: 删除 CUDA 环境变量配置
+  file:
+    path: "{{ gpuenv_cuda_profile }}"
+    state: absent
+
+- name: 删除 gpu-burn 目录
+  file:
+    path: "{{ gpuenv_gpu_burn_dir }}"
+    state: absent
+
+- name: 验证卸载结果
+  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2}' || true
+  register: uninstall_verify
+  changed_when: false
+
+- name: 输出卸载结果
+  debug:
+    msg: >-
+      {{ '卸载完成，无残留组件' if (uninstall_verify.stdout | trim | length == 0)
+         else '卸载完成，仍有残留包: ' + uninstall_verify.stdout }}

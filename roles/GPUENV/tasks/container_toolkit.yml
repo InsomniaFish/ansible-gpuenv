@@ -1,0 +1,32 @@
+---
+# 可选组件：nvidia-container-toolkit（容器内使用 GPU）
+# 启用方式：-e gpuenv_install_container_toolkit=true
+
+- name: 安装 nvidia-container-toolkit
+  apt:
+    name: nvidia-container-toolkit
+    state: present
+
+- name: 检查 docker 是否已安装
+  command: docker --version
+  register: docker_check
+  changed_when: false
+  failed_when: false
+
+- name: 配置 docker 使用 nvidia 运行时
+  command: nvidia-ctk runtime configure --runtime=docker
+  register: nvidia_ctk_configure
+  changed_when: "'Successfully configured' in nvidia_ctk_configure.stdout or 'configured' in nvidia_ctk_configure.stdout"
+  when: docker_check.rc == 0
+
+- name: 重启 docker 使 nvidia 运行时生效
+  systemd:
+    name: docker
+    state: restarted
+  when: docker_check.rc == 0 and nvidia_ctk_configure is changed
+
+- name: 容器支持配置结果提示
+  debug:
+    msg: >-
+      {{ 'nvidia-container-toolkit 已安装并配置 docker 运行时（docker run --gpus all 可用）' if docker_check.rc == 0 else
+         'nvidia-container-toolkit 已安装（未检测到 docker，跳过运行时配置）' }}

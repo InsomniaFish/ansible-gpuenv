@@ -1,0 +1,82 @@
+---
+#===============================================================================
+# GPUENV_CHECK role：检测 GPU 环境组件安装状况（只读，不做任何修改）
+# 检测项：编译依赖 / cuda-keyring / 驱动 / CUDA / fabricmanager / gpu-burn
+#===============================================================================
+
+- name: 收集已安装的 nvidia / cuda 相关软件包
+  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2, $3}' || true
+  register: check_pkgs
+  changed_when: false
+
+- name: 检查 gcc 是否可用
+  command: gcc --version
+  register: check_gcc
+  changed_when: false
+  failed_when: false
+
+- name: 检查 cuda-keyring 安装状态
+  shell: dpkg-query -W -f='${db:Status-Abbrev} ${Version}' cuda-keyring 2>/dev/null || echo "未安装"
+  register: check_keyring
+  changed_when: false
+
+- name: 检查 nvidia-smi 输出
+  command: nvidia-smi
+  register: check_nvidia_smi
+  changed_when: false
+  failed_when: false
+
+- name: 检查 nvcc 版本
+  command: /usr/local/cuda/bin/nvcc -V
+  register: check_nvcc
+  changed_when: false
+  failed_when: false
+
+- name: 检查 fabricmanager 服务状态
+  command: systemctl is-active nvidia-fabricmanager
+  register: check_fm_active
+  changed_when: false
+  failed_when: false
+
+- name: 检查 fabricmanager 开机自启状态
+  command: systemctl is-enabled nvidia-fabricmanager
+  register: check_fm_enabled
+  changed_when: false
+  failed_when: false
+
+- name: 检查 gpu_burn 可执行文件
+  stat:
+    path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
+  register: check_gpu_burn
+
+- name: 检查 CUDA 环境变量配置
+  stat:
+    path: "{{ gpuenv_cuda_profile }}"
+  register: check_cuda_profile
+
+- name: 检查 dkms 内核模块构建状态
+  shell: dkms status 2>/dev/null | grep -i nvidia || echo "无 nvidia dkms 模块"
+  register: check_dkms
+  changed_when: false
+  failed_when: false
+
+- name: 输出组件检测报告
+  debug:
+    msg:
+      - "================ GPU 环境组件检测报告 ================"
+      - "主机: {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
+      - "------------------------------------------------------"
+      - "gcc: {{ check_gcc.stdout_lines[0] if check_gcc.rc == 0 else '未安装' }}"
+      - "cuda-keyring: {{ check_keyring.stdout }}"
+      - "------------------------------------------------------"
+      - "已安装软件包:"
+      - "{{ check_pkgs.stdout_lines | default(['（无）']) }}"
+      - "------------------------------------------------------"
+      - "dkms 模块: {{ check_dkms.stdout_lines | default(['无']) }}"
+      - "nvidia-smi: {{ '正常' if check_nvidia_smi.rc == 0 else '不可用（无 GPU 或驱动未加载）' }}"
+      - "nvcc: {{ check_nvcc.stdout_lines[-2] if check_nvcc.rc == 0 else '未安装' }}"
+      - "CUDA 环境变量: {{ '已配置' if check_cuda_profile.stat.exists else '未配置' }}"
+      - "------------------------------------------------------"
+      - "fabricmanager 服务: {{ check_fm_active.stdout | default('未知') }} (开机自启: {{ check_fm_enabled.stdout | default('未知') }})"
+      - "gpu_burn: {{ '已编译 ' + gpuenv_gpu_burn_dir + '/gpu_burn' if check_gpu_burn.stat.exists else '未编译' }}"
+      - "======================================================"

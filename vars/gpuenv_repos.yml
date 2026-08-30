@@ -1,0 +1,30 @@
+---
+#===============================================================================
+# 软件源与版本配置（独立维护，便于指定/切换版本）
+# 由 site.yml 通过 vars_files 加载，优先级高于 role defaults，
+# 命令行 -e 参数可临时覆盖本文件中的值。
+#===============================================================================
+
+# --- 源 URL 配置 ---
+# NVIDIA CUDA 官方软件源基础地址（驱动 / CUDA / fabricmanager 均来自该源）
+#   - 国内加速：域名可改为 developer.download.nvidia.cn
+#   - 其他系统：ubuntu2204 可改为 ubuntu2004 / ubuntu2404 等
+gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+
+# cuda-keyring 软件源密钥包文件名（与 gpuenv_repo_base_url 拼接为完整下载地址）
+gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
+
+# gpu-burn 源码下载地址
+#   - 指定版本：将 master 改为对应 tag，例如
+#     https://github.com/wilicc/gpu-burn/archive/refs/tags/v1.1.zip
+gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
+
+# --- 版本配置 ---
+gpuenv_driver_version: "550.163.01"   # NVIDIA 驱动版本
+gpuenv_cuda_version: "12.4"           # CUDA Toolkit 版本
+gpuenv_fm_version: ""                 # fabricmanager 版本，留空则与驱动一致
+
+# --- 可选组件源配置 ---
+# nccl-tests 源码下载地址（多卡带宽测试）
+#   - 指定版本：将 master 改为对应 tag，例如 refs/tags/v2.13.1.zip
+gpuenv_nccl_tests_url: "https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"

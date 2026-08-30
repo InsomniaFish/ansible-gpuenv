@@ -1,0 +1,53 @@
+#===============================================================================
+# GPU 节点主机清单模板（inventory.ini.example）
+#
+# 使用方法：
+#   1. 复制本文件为实际清单：  cp inventory.ini.example inventory.ini
+#   2. 按实际环境修改主机 IP、用户名、认证方式
+#   3. 验证连通性：            ansible -i inventory.ini gpu_nodes -m ping
+#   4. 执行部署：              ansible-playbook -i inventory.ini site.yml
+#===============================================================================
+
+# --- GPU 节点组 ---
+# 格式：主机别名 ansible_host=实际IP [主机级变量]
+# 常用主机级变量：
+#   ansible_host=IP              实际连接的 IP 地址
+#   ansible_connection=local     本机执行，不走 ssh（控制节点自身部署时使用）
+#   ansible_port=22              ssh 端口，非默认端口时修改
+#   ansible_user=用户名           覆盖组级用户（按主机单独指定时）
+#   ansible_password=密码         覆盖组级密码（按主机单独指定时）
+#   gpuenv_driver_version=版本    覆盖该主机的驱动版本（按主机差异化配置时）
+#   gpuenv_cuda_version=版本      覆盖该主机的 CUDA 版本
+[gpu_nodes]
+# 示例：控制节点本机（本地连接，无需 ssh）
+# master01 ansible_host=192.168.48.100 ansible_connection=local
+# 示例：远程 GPU 节点
+# node01   ansible_host=192.168.48.101
+# node02   ansible_host=192.168.48.102
+# 示例：按主机指定不同驱动版本
+# node03   ansible_host=192.168.48.103 gpuenv_driver_version=535.183.01
+# 示例：各主机 root 密码不同时，在主机行单独指定（覆盖组级 ansible_password）
+# node04   ansible_host=192.168.48.104 ansible_password=主机4的密码
+# node05   ansible_host=192.168.48.105 ansible_password=主机5的密码
+
+# --- 组级变量（对 gpu_nodes 组内所有主机生效，可被主机级变量覆盖） ---
+[gpu_nodes:vars]
+# ssh 登录用户名
+ansible_user=root
+
+# 认证方式（二选一）：
+# 方式一：密码认证（无 ssh 密钥时使用）
+# 所有主机密码相同时在此统一配置；各主机密码不同时，
+# 可省略本行，改为在上方每台主机行单独指定 ansible_password
+# ansible_password=你的密码
+# 方式二：密钥认证（推荐，指定私钥路径；默认使用 ~/.ssh/id_rsa 可不写）
+# 首次分发密钥前用密码认证，执行 ./ssh-setup.sh 完成免密后可切换为密钥认证
+# ansible_ssh_private_key_file=/root/.ssh/id_rsa
+
+# ssh 连接参数：跳过主机密钥确认（首次连接新主机时避免交互提示）
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+
+# 非 root 用户部署时需开启 sudo 提权（配合 become: yes）
+# ansible_become=true
+# ansible_become_method=sudo
+# ansible_become_password=你的sudo密码
