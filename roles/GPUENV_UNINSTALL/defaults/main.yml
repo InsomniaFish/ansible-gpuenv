@@ -9,8 +9,44 @@ gpuenv_base_dir: "/root/ansible-gpuenv"
 # gpu-burn 安装目录（基于基准目录的相对位置）
 gpuenv_gpu_burn_dir: "{{ gpuenv_base_dir }}/gpu-burn-master"
 
+# nccl-tests 安装目录（基于基准目录的相对位置）
+gpuenv_nccl_tests_dir: "{{ gpuenv_base_dir }}/nccl-tests-master"
+
+# OpenMPI 安装目录（源码编译安装位置）
+gpuenv_openmpi_dir: "/usr/local/openmpi"
+
 # CUDA 环境变量文件（系统固定位置）
 gpuenv_cuda_profile: "/etc/profile.d/cuda.sh"
 
 # 是否同时执行 autoremove 清理孤立依赖
 gpuenv_uninstall_autoremove: true
+
+# --- 组件级卸载控制 ---
+# gpuenv_uninstall_components 取值：
+#   - "core"（默认）：卸载核心组件（驱动 / CUDA / fabricmanager / gpu-burn）
+#   - "all"：卸载全部组件（核心 + 可选）
+#   - 逗号分隔的组件列表：仅卸载指定组件，例如 "nccl,openmpi,nccl_tests"
+# 可选组件名：nccl / openmpi / nccl_tests / dcgm / container_toolkit / ofed / peermem / pci_acs
+gpuenv_uninstall_components: "core"
+
+# 组件分组定义（无需修改）
+gpuenv_core_components:
+  - driver
+  - cuda
+  - fabricmanager
+  - gpu_burn
+gpuenv_optional_components:
+  - nccl
+  - openmpi
+  - nccl_tests
+  - dcgm
+  - container_toolkit
+  - ofed
+  - peermem
+  - pci_acs
+
+# 实际卸载的组件列表（由 gpuenv_uninstall_components 解析得到）
+gpuenv_uninstall_selected: >-
+  {{ (gpuenv_core_components + gpuenv_optional_components) if gpuenv_uninstall_components == 'all'
+     else gpuenv_core_components if gpuenv_uninstall_components == 'core'
+     else (gpuenv_uninstall_components | replace(' ', '')).split(',') }}

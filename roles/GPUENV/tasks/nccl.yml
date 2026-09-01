@@ -1,21 +1,99 @@
 ---
-# 可选组件：NCCL 库 + nccl-tests（多卡通信与带宽测试）
+# 可选组件：NCCL 库 + OpenMPI + nccl-tests（多卡通信与带宽测试）
 # 启用方式：-e gpuenv_install_nccl=true
+# 版本基线（见 base_vesion.md）：NCCL 2.23.4（配套 CUDA 12.6）、OpenMPI 4.1.5（源码编译）
 
-- name: 安装 NCCL 库（libnccl2 / libnccl-dev）
+- name: 设置 CUDA 主次版本号（用于匹配 NCCL 包的 cuda 后缀，如 12.6）
+  set_fact:
+    gpuenv_cuda_series: "{{ gpuenv_cuda_version.split('.')[:2] | join('.') }}"
+
+- name: 查找源中与目标版本匹配的 NCCL 包版本（配套当前 CUDA 系列）
+  shell: >
+    apt-cache madison libnccl2
+    | awk -F'|' '{gsub(/ /,"",$2); print $2}'
+    | grep -F "{{ gpuenv_nccl_version }}" | grep -F "cuda{{ gpuenv_cuda_series }}" | head -n 1
+  register: nccl_repo_ver
+  changed_when: false
+
+- name: NCCL 版本不存在时报错
+  fail:
+    msg: "源中未找到 libnccl2 版本 {{ gpuenv_nccl_version }}（cuda{{ gpuenv_cuda_series }}），请检查版本配置"
+  when: nccl_repo_ver.stdout | trim | length == 0
+
+- name: 安装 NCCL 库（锁定版本，配套 CUDA 系列）
   apt:
     name:
-      - libnccl2
-      - libnccl-dev
+      - "libnccl2={{ nccl_repo_ver.stdout | trim }}"
+      - "libnccl-dev={{ nccl_repo_ver.stdout | trim }}"
     state: present
 
-- name: 安装 nccl-tests 编译依赖（make / openmpi）
+- name: 安装 OpenMPI 编译依赖
   apt:
     name:
-      - make
-      - openmpi-bin
-      - libopenmpi-dev
+      - build-essential
+      - libibverbs-dev
     state: present
+  failed_when: false
+
+- name: 检查 OpenMPI 是否已编译安装
+  stat:
+    path: /usr/local/openmpi/bin/mpirun
+  register: openmpi_bin
+
+- name: OpenMPI 已安装，跳过
+  debug:
+    msg: "OpenMPI 已安装 (/usr/local/openmpi)，跳过"
+  when: not gpuenv_force and openmpi_bin.stat.exists
+
+- name: 下载 OpenMPI 源码
+  get_url:
+    url: "{{ gpuenv_openmpi_url }}"
+    dest: "/tmp/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    mode: '0644'
+  when: gpuenv_force or not openmpi_bin.stat.exists
+
+- name: 解压 OpenMPI 源码
+  unarchive:
+    src: "/tmp/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    dest: /tmp
+    remote_src: yes
+  when: gpuenv_force or not openmpi_bin.stat.exists
+
+- name: 配置 OpenMPI 编译（安装到 /usr/local/openmpi）
+  command: ./configure --prefix=/usr/local/openmpi
+  args:
+    chdir: "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
+    creates: "/tmp/openmpi-{{ gpuenv_openmpi_version }}/Makefile"
+  when: gpuenv_force or not openmpi_bin.stat.exists
+
+- name: 编译 OpenMPI
+  command: make -j {{ ansible_processor_vcpus | default(4) }}
+  args:
+    chdir: "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
+  when: gpuenv_force or not openmpi_bin.stat.exists
+
+- name: 安装 OpenMPI
+  command: make install
+  args:
+    chdir: "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
+  when: gpuenv_force or not openmpi_bin.stat.exists
+
+- name: 配置 OpenMPI 环境变量
+  copy:
+    dest: /etc/profile.d/openmpi.sh
+    mode: '0644'
+    content: |
+      export PATH=/usr/local/openmpi/bin:$PATH
+      export LD_LIBRARY_PATH=/usr/local/openmpi/lib:$LD_LIBRARY_PATH
+
+- name: 清理 OpenMPI 临时文件
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    - "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
+  when: gpuenv_force or not openmpi_bin.stat.exists
 
 - name: 检查 nccl-tests 是否已编译
   stat:
@@ -47,8 +125,8 @@
     remote_src: yes
   when: gpuenv_force or not nccl_tests_bin.stat.exists
 
-- name: 编译 nccl-tests
-  command: make -j CUDA_HOME=/usr/local/cuda
+- name: 编译 nccl-tests（多机模式，使用源码编译的 OpenMPI）
+  command: make -j MPI=1 MPI_HOME=/usr/local/openmpi CUDA_HOME=/usr/local/cuda
   args:
     chdir: "{{ gpuenv_nccl_tests_dir }}"
   when: gpuenv_force or not nccl_tests_bin.stat.exists

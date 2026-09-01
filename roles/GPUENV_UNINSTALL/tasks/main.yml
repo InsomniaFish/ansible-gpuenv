@@ -1,34 +1,184 @@
 ---
 #===============================================================================
-# GPUENV_UNINSTALL role：卸载 GPU 环境组件
-# 卸载项：fabricmanager 服务 / 驱动 / CUDA / fabricmanager 包 / 环境变量 / gpu-burn
-# 对应 install_gpuenv.sh 的 uninstall 功能
+# GPUENV_UNINSTALL role：卸载 GPU 环境组件（支持组件级指定）
+#
+# 通过 gpuenv_uninstall_components 指定卸载范围：
+#   - "core"（默认）：驱动 / CUDA / fabricmanager / gpu-burn
+#   - "all"：全部组件
+#   - 逗号分隔列表：仅卸载指定组件，如 "nccl,openmpi"
+#
+# 组件名：
+#   核心：driver / cuda / fabricmanager / gpu_burn
+#   可选：nccl / openmpi / nccl_tests / dcgm / container_toolkit / ofed / peermem / pci_acs
+#
+# 用法示例：
+#   ansible-playbook -i inventory.ini uninstall.yml                                    # 卸载核心组件
+#   ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=all # 卸载全部
+#   ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=nccl,dcgm
 #===============================================================================
 
-- name: 确认卸载操作（危险操作提示）
+- name: 显示卸载计划
   debug:
-    msg: "即将在 {{ inventory_hostname }} 卸载全部 GPU 环境组件（驱动 / CUDA / fabricmanager / gpu-burn）"
+    msg: "即将在 {{ inventory_hostname }} 卸载组件: {{ gpuenv_uninstall_selected | join(', ') }}"
 
+#=============================== fabricmanager ==================================
 - name: 停止 fabricmanager 服务
   systemd:
     name: nvidia-fabricmanager
     state: stopped
   failed_when: false
+  when: "'fabricmanager' in gpuenv_uninstall_selected"
 
 - name: 取消 fabricmanager 开机自启
   systemd:
     name: nvidia-fabricmanager
     enabled: no
   failed_when: false
+  when: "'fabricmanager' in gpuenv_uninstall_selected"
 
-- name: 卸载 nvidia / cuda 相关软件包（purge 方式）
-  shell: >
-    apt-get remove -y --purge 'nvidia-*' 'libnvidia-*' 'cuda*'
-    || apt-get remove -y --purge $(dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2}' | tr '\n' ' ')
-  register: uninstall_pkgs
-  changed_when: "'Removing' in uninstall_pkgs.stdout or 'Purging' in uninstall_pkgs.stdout"
+- name: 卸载 fabricmanager 包
+  shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+nvidia-fabricmanager" | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "fabricmanager 未安装，跳过"
+  register: uninstall_fm
+  changed_when: "'Removing' in uninstall_fm.stdout or 'Purging' in uninstall_fm.stdout"
   failed_when: false
+  when: "'fabricmanager' in gpuenv_uninstall_selected"
 
+#=============================== driver =========================================
+- name: 卸载 NVIDIA 驱动相关包（不含 fabricmanager）
+  shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-)" | grep -v fabricmanager | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "驱动未安装，跳过"
+  register: uninstall_driver
+  changed_when: "'Removing' in uninstall_driver.stdout or 'Purging' in uninstall_driver.stdout"
+  failed_when: false
+  when: "'driver' in gpuenv_uninstall_selected"
+
+#=============================== cuda ===========================================
+- name: 卸载 CUDA 相关包
+  shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+cuda" | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "CUDA 未安装，跳过"
+  register: uninstall_cuda
+  changed_when: "'Removing' in uninstall_cuda.stdout or 'Purging' in uninstall_cuda.stdout"
+  failed_when: false
+  when: "'cuda' in gpuenv_uninstall_selected"
+
+- name: 删除 CUDA 环境变量配置
+  file:
+    path: "{{ gpuenv_cuda_profile }}"
+    state: absent
+  when: "'cuda' in gpuenv_uninstall_selected"
+
+#=============================== gpu_burn =======================================
+- name: 删除 gpu-burn 目录
+  file:
+    path: "{{ gpuenv_gpu_burn_dir }}"
+    state: absent
+  when: "'gpu_burn' in gpuenv_uninstall_selected"
+
+#=============================== nccl ===========================================
+- name: 卸载 NCCL 包
+  shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+libnccl" | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "NCCL 未安装，跳过"
+  register: uninstall_nccl
+  changed_when: "'Removing' in uninstall_nccl.stdout or 'Purging' in uninstall_nccl.stdout"
+  failed_when: false
+  when: "'nccl' in gpuenv_uninstall_selected"
+
+#=============================== openmpi ========================================
+- name: 删除 OpenMPI 安装目录（源码编译产物）
+  file:
+    path: "{{ gpuenv_openmpi_dir }}"
+    state: absent
+  when: "'openmpi' in gpuenv_uninstall_selected"
+
+- name: 删除 OpenMPI 环境变量配置
+  file:
+    path: /etc/profile.d/openmpi.sh
+    state: absent
+  when: "'openmpi' in gpuenv_uninstall_selected"
+
+#=============================== nccl_tests =====================================
+- name: 删除 nccl-tests 目录
+  file:
+    path: "{{ gpuenv_nccl_tests_dir }}"
+    state: absent
+  when: "'nccl_tests' in gpuenv_uninstall_selected"
+
+#=============================== dcgm ===========================================
+- name: 停止并禁用 DCGM 服务
+  systemd:
+    name: nvidia-dcgm
+    state: stopped
+    enabled: no
+  failed_when: false
+  when: "'dcgm' in gpuenv_uninstall_selected"
+
+- name: 卸载 DCGM 包
+  shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+(datacenter-gpu-manager|cuda-dcgm)" | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "DCGM 未安装，跳过"
+  register: uninstall_dcgm
+  changed_when: "'Removing' in uninstall_dcgm.stdout or 'Purging' in uninstall_dcgm.stdout"
+  failed_when: false
+  when: "'dcgm' in gpuenv_uninstall_selected"
+
+#=============================== container_toolkit ==============================
+- name: 卸载 nvidia-container-toolkit
+  shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+nvidia-container-toolkit" | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "container-toolkit 未安装，跳过"
+  register: uninstall_ctk
+  changed_when: "'Removing' in uninstall_ctk.stdout or 'Purging' in uninstall_ctk.stdout"
+  failed_when: false
+  when: "'container_toolkit' in gpuenv_uninstall_selected"
+
+#=============================== ofed ===========================================
+- name: 卸载 MLNX OFED（优先使用官方 ofed_uninstall）
+  shell: |
+    if command -v ofed_uninstall >/dev/null 2>&1; then
+      ofed_uninstall --force 2>&1 | tail -n 3
+    else
+      pkgs=$(dpkg -l | grep -E "^ii\s+(rdma-core|ibverbs-providers|ibverbs-utils|infiniband-diags|perftest|libibverbs-dev|librdmacm-dev|mlnx-|ibacm|opensm)" | awk '{print $2}' | tr '\n' ' ')
+      [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "OFED/RDMA 未安装，跳过"
+    fi
+  register: uninstall_ofed
+  changed_when: true
+  failed_when: false
+  when: "'ofed' in gpuenv_uninstall_selected"
+
+#=============================== peermem ========================================
+- name: 卸载 nvidia_peermem 模块并删除开机自动加载配置
+  shell: |
+    rmmod nvidia_peermem 2>/dev/null || true
+    rm -f /etc/modules-load.d/nvidia-peermem.conf
+    echo "peermem 配置已清理"
+  register: uninstall_peermem
+  changed_when: true
+  when: "'peermem' in gpuenv_uninstall_selected"
+
+#=============================== pci_acs ========================================
+- name: 停止并禁用 ACS 关闭服务
+  systemd:
+    name: disable-pci-acs
+    state: stopped
+    enabled: no
+  failed_when: false
+  when: "'pci_acs' in gpuenv_uninstall_selected"
+
+- name: 删除 ACS 关闭服务与脚本
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/disable-pci-acs.service
+    - /usr/local/bin/disable-pci-acs.sh
+  when: "'pci_acs' in gpuenv_uninstall_selected"
+
+#=============================== 公共清理 =======================================
 - name: 清理孤立依赖
   apt:
     autoremove: yes
@@ -39,23 +189,15 @@
   systemd:
     daemon_reload: yes
 
-- name: 删除 CUDA 环境变量配置
-  file:
-    path: "{{ gpuenv_cuda_profile }}"
-    state: absent
-
-- name: 删除 gpu-burn 目录
-  file:
-    path: "{{ gpuenv_gpu_burn_dir }}"
-    state: absent
-
 - name: 验证卸载结果
-  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2}' || true
+  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda|libnccl|datacenter-gpu-manager)" | awk '{print $2}' || true
   register: uninstall_verify
   changed_when: false
 
 - name: 输出卸载结果
   debug:
-    msg: >-
-      {{ '卸载完成，无残留组件' if (uninstall_verify.stdout | trim | length == 0)
-         else '卸载完成，仍有残留包: ' + uninstall_verify.stdout }}
+    msg:
+      - "卸载计划: {{ gpuenv_uninstall_selected | join(', ') }}"
+      - >-
+        {{ '指定组件卸载完成，无相关残留包' if (uninstall_verify.stdout | trim | length == 0)
+           else '卸载完成，系统中仍存在以下相关包（可能不在本次卸载范围内）: ' + uninstall_verify.stdout }}

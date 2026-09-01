@@ -16,9 +16,24 @@
   import_tasks: cuda_repo.yml
   tags: [gpuenv, repo]
 
+- name: 安装 MLNX OFED（可选，必须在 GPU 驱动之前）
+  import_tasks: ofed.yml
+  when: gpuenv_install_ofed
+  tags: [gpuenv, ofed]
+
 - name: 安装 NVIDIA 显卡驱动
   import_tasks: driver.yml
   tags: [gpuenv, driver]
+
+- name: 加载 nvidia_peermem（多机通信，驱动之后执行）
+  import_tasks: peermem.yml
+  when: gpuenv_enable_peermem
+  tags: [gpuenv, peermem]
+
+- name: 关闭 PCI ACS（多机通信要求）
+  import_tasks: pci_acs.yml
+  when: gpuenv_disable_pci_acs
+  tags: [gpuenv, pci_acs]
 
 - name: 安装 CUDA Toolkit
   import_tasks: cuda_toolkit.yml

@@ -46,9 +46,9 @@ CUDA_KEYRING_DEB="cuda-keyring_1.1-1_all.deb"
 #     https://github.com/wilicc/gpu-burn/archive/refs/tags/v1.1.zip
 GPU_BURN_URL="https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 
-# --- 版本配置 ---
-DRIVER_VERSION="550.163.01"     # NVIDIA 驱动版本
-CUDA_VERSION="12.4"             # CUDA Toolkit 版本
+# --- 版本配置（默认以 base_vesion.md 版本基线为准） ---
+DRIVER_VERSION="560.35.05"      # NVIDIA 驱动版本（基线：560.35.05，560.35.03 也可）
+CUDA_VERSION="12.6.2"           # CUDA Toolkit 版本（基线：12.6，建议 12.6.2）
 FM_VERSION=""                   # fabricmanager 版本，留空则与驱动一致
 SKIP_GPU_BURN=false             # 是否跳过 gpu-burn 下载编译
 FORCE=false                     # 是否忽略已安装检测，强制重装
@@ -213,8 +213,10 @@ install_driver() {
 }
 
 # 步骤4：安装 CUDA Toolkit（对应文档：四、安装 CUDA Toolkit，不含驱动）
+# 支持两位版本（12.6，装该系列最新）与三位版本（12.6.2，精确锁定小版本）
 install_cuda_toolkit() {
-    local pkg="cuda-toolkit-${CUDA_VERSION//./-}"
+    # 包名取主.次版本（如 12.6.2 -> cuda-toolkit-12-6）
+    local pkg="cuda-toolkit-$(echo "$CUDA_VERSION" | cut -d. -f1)-$(echo "$CUDA_VERSION" | cut -d. -f2)"
     log "步骤4: 安装 CUDA Toolkit ${CUDA_VERSION} (${pkg})"
 
     if ! apt-cache show "$pkg" >/dev/null 2>&1; then
@@ -222,11 +224,20 @@ install_cuda_toolkit() {
         exit 1
     fi
 
+    # 查找源中匹配的完整版本号（三位版本时精确锁定）
+    local ver
+    ver=$(find_pkg_ver "$pkg" "$CUDA_VERSION")
+    if [[ -z "$ver" ]]; then
+        err "源中未找到 ${pkg} 版本 ${CUDA_VERSION}，可用版本如下："
+        apt-cache madison "$pkg" | awk -F'|' '{gsub(/ /,"",$2); print "  " $2}'
+        exit 1
+    fi
+
     # 已安装且版本一致时跳过
     if ! $FORCE && is_installed_match "$pkg" "$CUDA_VERSION"; then
         log "步骤4: ${pkg} 已安装 $(installed_ver "$pkg")，与目标版本一致，跳过"
     else
-        apt_install "$pkg"
+        apt_install "${pkg}=${ver}"
     fi
 
     # 配置环境变量（对应文档：4. 配置 CUDA 环境变量）

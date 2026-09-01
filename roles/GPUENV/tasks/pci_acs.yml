@@ -1,0 +1,91 @@
+---
+# PCI ACS 关闭：多机 NCCL 测试要求关闭 PCI Switch 的 ACS（基线：关闭）
+# 检测方式：lspci -vvv | grep ACSCtl 输出含 "SrcValid+" 表示 ACS 已启用
+# 关闭方式：setpci 清除各设备 ACS 控制寄存器
+# 持久化：写入 systemd 服务，开机自动执行
+
+- name: 安装 setpci 工具（pciutils）
+  apt:
+    name: pciutils
+    state: present
+
+- name: 检测 ACS 启用状态
+  shell: |
+    if lspci -vvv 2>/dev/null | grep ACSCtl | grep -q "SrcValid+"; then
+      echo "enabled"
+    else
+      echo "disabled"
+    fi
+  register: acs_status
+  changed_when: false
+
+- name: ACS 状态提示
+  debug:
+    msg: >-
+      {{ '检测到 ACS 已启用，将执行关闭' if acs_status.stdout | trim == 'enabled' else
+         'ACS 未启用（或无支持 ACS 的设备），无需处理' }}
+
+- name: 写入 ACS 关闭脚本
+  copy:
+    dest: /usr/local/bin/disable-pci-acs.sh
+    mode: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # 关闭所有支持 ACS 的 PCI 设备的 ACS 功能（多机 NCCL 测试要求）
+      for BDF in $(lspci -d "*:*:*" | awk '{print $1}'); do
+        # 跳过不支持 ACS 的设备
+        setpci -v -s ${BDF} ECAP_ACS+0x6.w > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+          continue
+        fi
+        setpci -v -s ${BDF} ECAP_ACS+0x6.w=0000
+      done
+  when: acs_status.stdout | trim == 'enabled'
+
+- name: 执行 ACS 关闭
+  command: /usr/local/bin/disable-pci-acs.sh
+  register: acs_disable
+  changed_when: true
+  when: acs_status.stdout | trim == 'enabled'
+
+- name: 配置开机自动关闭 ACS（systemd 服务）
+  copy:
+    dest: /etc/systemd/system/disable-pci-acs.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Disable PCI ACS for multi-node NCCL testing
+      After=local-fs.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/disable-pci-acs.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  when: acs_status.stdout | trim == 'enabled'
+
+- name: 启用开机自动关闭 ACS 服务
+  systemd:
+    name: disable-pci-acs
+    enabled: yes
+    daemon_reload: yes
+  when: acs_status.stdout | trim == 'enabled'
+
+- name: 验证 ACS 关闭结果
+  shell: |
+    if lspci -vvv 2>/dev/null | grep ACSCtl | grep -q "SrcValid+"; then
+      echo "enabled"
+    else
+      echo "disabled"
+    fi
+  register: acs_verify
+  changed_when: false
+  when: acs_status.stdout | trim == 'enabled'
+
+- name: 显示 ACS 处理结果
+  debug:
+    msg: >-
+      {{ 'ACS 已关闭并配置开机持久化' if (acs_status.stdout | trim == 'disabled' or acs_verify.stdout | default('disabled') | trim == 'disabled') else
+         'ACS 关闭后仍检测到启用状态，请手动检查' }}

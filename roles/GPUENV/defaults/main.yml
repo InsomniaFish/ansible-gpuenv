@@ -5,23 +5,68 @@
 # （由 site.yml 通过 vars_files 加载），本文件仅保留行为开关与路径配置。
 #===============================================================================
 
-# --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供） ---
+# --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供，基线见 base_vesion.md） ---
 gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
 gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
-gpuenv_driver_version: "550.163.01"
-gpuenv_cuda_version: "12.4"
+gpuenv_driver_version: "560.35.05"
+gpuenv_cuda_version: "12.6.2"
 gpuenv_fm_version: ""
+gpuenv_nccl_version: "2.23.4"
+gpuenv_openmpi_version: "4.1.5"
+gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.5.tar.gz"
 
 # --- 行为开关 ---
 gpuenv_skip_gpu_burn: false           # 是否跳过 gpu-burn 下载编译
 gpuenv_force: false                   # 是否忽略已安装检测，强制重装
 gpuenv_reboot_after_driver: false     # 驱动安装后是否自动重启（生产验收建议开启）
 
+# --- CUDA 安装模式 ---
+# gpuenv_cuda_install_mode：
+#   - apt（默认）：在线 apt 安装 cuda-toolkit-<主.次>，锁定小版本
+#   - package：使用官方 run 安装包（离线/无 apt 源场景），
+#     以 --silent --toolkit 方式仅安装 Toolkit（不装驱动，等效文档"取消勾选 Driver"）
+gpuenv_cuda_install_mode: "apt"
+# CUDA run 安装包（仅 package 模式使用）：本地路径或 URL
+# 默认官方直链（12.6.2，捆绑驱动 560.35.03；注意 run 包文件名中的驱动版本与
+# gpuenv_driver_version 可能不同，其他版本需按官方归档页调整）
+# 归档页：https://developer.nvidia.com/cuda-toolkit-archive
+gpuenv_cuda_package: "https://developer.download.nvidia.com/compute/cuda/12.6.2/local_installers/cuda_12.6.2_560.35.03_linux.run"
+
 # --- 可选组件开关（默认不装，按需开启） ---
 gpuenv_install_nccl: false            # NCCL 库 + nccl-tests（多卡通信与带宽测试）
 gpuenv_install_dcgm: false            # DCGM 数据中心 GPU 管理器（硬件诊断/监控）
 gpuenv_install_container_toolkit: false  # nvidia-container-toolkit（容器内使用 GPU）
+
+# --- IB 网络与多机通信配置（基线见 base_vesion.md） ---
+# MLNX OFED：IB 网络驱动，必须在 GPU 驱动之前安装（默认关闭）
+# 安装模式（由 gpuenv_ofed_mode 决定）：
+#   - native（默认）：在线安装 Ubuntu 原生 RDMA 栈（rdma-core 等，apt 在线安装，
+#     内核自带 mlx5 驱动），适用于大多数场景
+#   - package：使用官方 MLNX_OFED tgz 安装器（严格匹配基线版本 24.10-1.1.4.0，
+#     默认使用 gpuenv_ofed_package 内置的官方直链，开箱即用；
+#     如需其他版本或本地包，用 -e gpuenv_ofed_package=... 覆盖）
+# 说明：NVIDIA 官方 OFED apt 仓库（linux.mellanox.com）实测无法通过 apt 拉取，故不提供
+# 官方下载：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+gpuenv_install_ofed: false
+gpuenv_ofed_mode: "native"
+gpuenv_ofed_version: "24.10-1.1.4.0"
+# OFED 安装包（仅 package 模式使用）：本地路径或 URL，默认官方直链（24.10-1.1.4.0）
+# 其他版本按规则拼接：https://content.mellanox.com/ofed/MLNX_OFED-<版本>/MLNX_OFED_LINUX-<版本>-ubuntu22.04-x86_64.tgz
+gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-24.10-1.1.4.0/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz"
+# native 模式安装的 RDMA 软件包（可按需增减）
+gpuenv_ofed_native_packages:
+  - rdma-core
+  - ibverbs-providers
+  - ibverbs-utils
+  - infiniband-diags
+  - perftest
+  - libibverbs-dev
+  - librdmacm-dev
+# nvidia_peermem：GPUDirect RDMA 支持，多机 NCCL 测试需开启（无驱动时自动跳过）
+gpuenv_enable_peermem: true
+# PCI ACS：多机测试要求关闭（基线：关闭），自动检测并持久化
+gpuenv_disable_pci_acs: true
 
 # --- 路径配置（以项目目录为基准路径，统一在此管理） ---
 # 项目基准目录（控制节点上本项目的目录；远程节点部署时会自动创建）

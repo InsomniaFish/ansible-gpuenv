@@ -9,5 +9,11 @@ gpuenv_base_dir: "/root/ansible-gpuenv"
 # gpu-burn 安装目录（基于基准目录的相对位置）
 gpuenv_gpu_burn_dir: "{{ gpuenv_base_dir }}/gpu-burn-master"
 
+# nccl-tests 安装目录（基于基准目录的相对位置）
+gpuenv_nccl_tests_dir: "{{ gpuenv_base_dir }}/nccl-tests-master"
+
 # CUDA 环境变量文件（系统固定位置）
 gpuenv_cuda_profile: "/etc/profile.d/cuda.sh"
+
+# OpenMPI 安装目录（源码编译安装位置）
+gpuenv_openmpi_dir: "/usr/local/openmpi"

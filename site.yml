@@ -6,7 +6,7 @@
 # 用法：
 #   ansible-playbook -i inventory.ini site.yml                          # 按配置文件版本安装
 #   ansible-playbook -i inventory.ini site.yml \
-#     -e gpuenv_driver_version=550.127.05 -e gpuenv_cuda_version=12.4  # 临时覆盖版本
+#     -e gpuenv_driver_version=560.35.03 -e gpuenv_cuda_version=12.6   # 临时覆盖版本
 #   ansible-playbook -i inventory.ini site.yml --tags driver           # 仅执行驱动步骤
 #   ansible-playbook -i inventory.ini site.yml -e gpuenv_force=true    # 强制重装
 #===============================================================================
