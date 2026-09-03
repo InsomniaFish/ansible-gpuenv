@@ -1,11 +1,19 @@
 ---
 # 可选组件：NCCL 库 + OpenMPI + nccl-tests（多卡通信与带宽测试）
 # 启用方式：-e gpuenv_install_nccl=true
-# 版本基线（见 base_vesion.md）：NCCL 2.23.4（配套 CUDA 12.6）、OpenMPI 4.1.5（源码编译）
+# 安装模式（支持混合使用）：
+#   - gpuenv_nccl_install_mode：NCCL 库安装方式
+#       online（默认）：apt 源安装；package：安装 gpuenv_nccl_package 目录下的 deb 包
+#   - OpenMPI / nccl-tests 源码：对应离线包变量留空则在线下载，
+#     提供本地包（gpuenv_openmpi_src_package / gpuenv_nccl_tests_src_package）则用本地包
+# 版本基线（见 base_vesion.md）：NCCL 需与 CUDA 版本配套、OpenMPI 源码编译
 
 - name: 设置 CUDA 主次版本号（用于匹配 NCCL 包的 cuda 后缀，如 12.6）
   set_fact:
     gpuenv_cuda_series: "{{ gpuenv_cuda_version.split('.')[:2] | join('.') }}"
+
+#=============================== NCCL 库安装 ===================================
+# online：apt 源安装；package：安装本地目录下的全部 deb 包
 
 - name: 查找源中与目标版本匹配的 NCCL 包版本（配套当前 CUDA 系列）
   shell: >
@@ -14,19 +22,39 @@
     | grep -F "{{ gpuenv_nccl_version }}" | grep -F "cuda{{ gpuenv_cuda_series }}" | head -n 1
   register: nccl_repo_ver
   changed_when: false
+  when: gpuenv_nccl_install_mode == 'online'
 
-- name: NCCL 版本不存在时报错
+- name: NCCL 版本不存在时报错（online 模式）
   fail:
     msg: "源中未找到 libnccl2 版本 {{ gpuenv_nccl_version }}（cuda{{ gpuenv_cuda_series }}），请检查版本配置"
-  when: nccl_repo_ver.stdout | trim | length == 0
+  when:
+    - gpuenv_nccl_install_mode == 'online'
+    - nccl_repo_ver.stdout | trim | length == 0
 
-- name: 安装 NCCL 库（锁定版本，配套 CUDA 系列）
+- name: 安装 NCCL 库（online 模式，锁定版本，配套 CUDA 系列）
   apt:
     name:
       - "libnccl2={{ nccl_repo_ver.stdout | trim }}"
       - "libnccl-dev={{ nccl_repo_ver.stdout | trim }}"
     state: present
+  when: gpuenv_nccl_install_mode == 'online'
 
+- name: package 模式校验 NCCL 安装包参数
+  fail:
+    msg: >-
+      gpuenv_nccl_install_mode=package 但未提供安装包目录，请通过
+      -e gpuenv_nccl_package=<存放 libnccl2/libnccl-dev deb 包的本地目录> 指定
+  when:
+    - gpuenv_nccl_install_mode == 'package'
+    - gpuenv_nccl_package | length == 0
+
+- name: 安装 NCCL 库（package 模式，本地目录全部 deb 包）
+  apt:
+    deb: "{{ item }}"
+  loop: "{{ query('fileglob', gpuenv_nccl_package + '/*.deb') }}"
+  when: gpuenv_nccl_install_mode == 'package'
+
+#=============================== OpenMPI 编译安装 ================================
 - name: 安装 OpenMPI 编译依赖
   apt:
     name:
@@ -45,37 +73,48 @@
     msg: "OpenMPI 已安装 (/usr/local/openmpi)，跳过"
   when: not gpuenv_force and openmpi_bin.stat.exists
 
-- name: 下载 OpenMPI 源码
+- name: 下载 OpenMPI 源码（在线，未提供本地源码包时）
   get_url:
     url: "{{ gpuenv_openmpi_url }}"
-    dest: "/tmp/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    dest: "{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
     mode: '0644'
-  when: gpuenv_force or not openmpi_bin.stat.exists
+  when:
+    - gpuenv_openmpi_src_package | length == 0
+    - gpuenv_force or not openmpi_bin.stat.exists
 
-- name: 解压 OpenMPI 源码
-  unarchive:
-    src: "/tmp/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
-    dest: /tmp
-    remote_src: yes
+- name: 拷贝本地 OpenMPI 源码包到安装包目录（提供本地源码包时）
+  copy:
+    src: "{{ gpuenv_openmpi_src_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    mode: '0644'
+  when:
+    - gpuenv_openmpi_src_package | length > 0
+    - gpuenv_force or not openmpi_bin.stat.exists
+
+- name: 解压 OpenMPI 源码（到 /opt）
+  command: >
+    tar -xzf {{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz -C /opt
+  args:
+    creates: "{{ gpuenv_openmpi_src_dir }}"
   when: gpuenv_force or not openmpi_bin.stat.exists
 
 - name: 配置 OpenMPI 编译（安装到 /usr/local/openmpi）
   command: ./configure --prefix=/usr/local/openmpi
   args:
-    chdir: "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
-    creates: "/tmp/openmpi-{{ gpuenv_openmpi_version }}/Makefile"
+    chdir: "{{ gpuenv_openmpi_src_dir }}"
+    creates: "{{ gpuenv_openmpi_src_dir }}/Makefile"
   when: gpuenv_force or not openmpi_bin.stat.exists
 
 - name: 编译 OpenMPI
   command: make -j {{ ansible_processor_vcpus | default(4) }}
   args:
-    chdir: "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
+    chdir: "{{ gpuenv_openmpi_src_dir }}"
   when: gpuenv_force or not openmpi_bin.stat.exists
 
 - name: 安装 OpenMPI
   command: make install
   args:
-    chdir: "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
+    chdir: "{{ gpuenv_openmpi_src_dir }}"
   when: gpuenv_force or not openmpi_bin.stat.exists
 
 - name: 配置 OpenMPI 环境变量
@@ -86,15 +125,9 @@
       export PATH=/usr/local/openmpi/bin:$PATH
       export LD_LIBRARY_PATH=/usr/local/openmpi/lib:$LD_LIBRARY_PATH
 
-- name: 清理 OpenMPI 临时文件
-  file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - "/tmp/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
-    - "/tmp/openmpi-{{ gpuenv_openmpi_version }}"
-  when: gpuenv_force or not openmpi_bin.stat.exists
+# 注意：编译完成后保留 OpenMPI 源码包与源码目录，不做删除
 
+#=============================== nccl-tests 编译 ===================================
 - name: 检查 nccl-tests 是否已编译
   stat:
     path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
@@ -105,12 +138,23 @@
     msg: "nccl-tests 已编译 ({{ gpuenv_nccl_tests_dir }}/build)，跳过"
   when: not gpuenv_force and nccl_tests_bin.stat.exists
 
-- name: 下载 nccl-tests 源码
+- name: 下载 nccl-tests 源码（在线，未提供本地源码包时）
   get_url:
     url: "{{ gpuenv_nccl_tests_url }}"
-    dest: /tmp/nccl-tests-master.zip
+    dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
     mode: '0644'
-  when: gpuenv_force or not nccl_tests_bin.stat.exists
+  when:
+    - gpuenv_nccl_tests_src_package | length == 0
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 拷贝本地 nccl-tests 源码包到安装包目录（提供本地源码包时）
+  copy:
+    src: "{{ gpuenv_nccl_tests_src_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
+    mode: '0644'
+  when:
+    - gpuenv_nccl_tests_src_package | length > 0
+    - gpuenv_force or not nccl_tests_bin.stat.exists
 
 - name: 清理旧源码目录
   file:
@@ -118,11 +162,16 @@
     state: absent
   when: gpuenv_force or not nccl_tests_bin.stat.exists
 
-- name: 解压 nccl-tests 源码（到项目基准目录）
-  unarchive:
-    src: /tmp/nccl-tests-master.zip
-    dest: "{{ gpuenv_base_dir }}"
-    remote_src: yes
+# 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/nccl-tests）
+- name: 解压 nccl-tests 源码到目标目录
+  shell: |
+    rm -rf /tmp/nccl-tests-extract
+    unzip -o {{ gpuenv_pkg_dir }}/nccl-tests-src.zip -d /tmp/nccl-tests-extract >/dev/null
+    mkdir -p {{ gpuenv_nccl_tests_dir | dirname }}
+    mv /tmp/nccl-tests-extract/* {{ gpuenv_nccl_tests_dir }}
+    rm -rf /tmp/nccl-tests-extract
+  args:
+    creates: "{{ gpuenv_nccl_tests_dir }}"
   when: gpuenv_force or not nccl_tests_bin.stat.exists
 
 - name: 编译 nccl-tests（多机模式，使用源码编译的 OpenMPI）
@@ -131,11 +180,7 @@
     chdir: "{{ gpuenv_nccl_tests_dir }}"
   when: gpuenv_force or not nccl_tests_bin.stat.exists
 
-- name: 清理临时压缩包
-  file:
-    path: /tmp/nccl-tests-master.zip
-    state: absent
-  when: gpuenv_force or not nccl_tests_bin.stat.exists
+# 注意：编译完成后保留 {{ gpuenv_pkg_dir }}/nccl-tests-src.zip 源码包，不做删除
 
 - name: 验证 nccl-tests 编译产物
   stat:

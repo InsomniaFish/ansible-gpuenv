@@ -1,5 +1,6 @@
 ---
 # PCI ACS 关闭：多机 NCCL 测试要求关闭 PCI Switch 的 ACS（基线：关闭）
+# 启用方式：-e gpuenv_install_pci_acs=true（配置型组件，无在线/离线之分）
 # 检测方式：lspci -vvv | grep ACSCtl 输出含 "SrcValid+" 表示 ACS 已启用
 # 关闭方式：setpci 清除各设备 ACS 控制寄存器
 # 持久化：写入 systemd 服务，开机自动执行

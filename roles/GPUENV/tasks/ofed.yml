@@ -2,24 +2,24 @@
 # IB 网络驱动：MLNX OFED / RDMA 栈安装（必须在 GPU 驱动之前执行）
 # 基线（见 base_vesion.md）：MLNX OFED 24.10-1.1.4.0-LTS
 # 启用方式：-e gpuenv_install_ofed=true
-# 安装模式（gpuenv_ofed_mode）：
-#   - native（默认，在线）：apt 安装 Ubuntu 原生 RDMA 栈（rdma-core 等），
+# 安装模式（gpuenv_ofed_install_mode）：
+#   - online（默认，在线）：apt 安装 Ubuntu 原生 RDMA 栈（rdma-core 等），
 #     内核自带 mlx5 驱动，适用于大多数场景
 #   - package（离线/精确版本）：使用官方 MLNX_OFED tgz 安装器，
-#     需 -e gpuenv_ofed_package=<MLNX_OFED_LINUX-xxx.tgz 路径或 URL>
+#     通过 -e gpuenv_ofed_package=<MLNX_OFED_LINUX-xxx.tgz 路径或 URL> 指定
 # 说明：NVIDIA 官方 OFED apt 仓库（linux.mellanox.com）实测无法通过 apt 拉取，故不支持
 # 官方下载：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
 
 - name: package 模式校验安装包参数
   fail:
     msg: >-
-      gpuenv_ofed_mode=package 但未提供安装包，请通过
+      gpuenv_ofed_install_mode=package 但未提供安装包，请通过
       -e gpuenv_ofed_package=<MLNX_OFED_LINUX-xxx.tgz 路径或 URL> 指定
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_package | length == 0
 
-#=============================== native 在线模式 ================================
+#=============================== online 在线模式 ================================
 # apt 安装 Ubuntu 原生 RDMA 栈（rdma-core + mlx5 用户态驱动 + 诊断/测试工具）
 
 - name: 刷新软件源缓存（允许第三方源偶发失败）
@@ -27,28 +27,28 @@
   register: ofed_apt_update
   changed_when: false
   failed_when: false
-  when: gpuenv_ofed_mode == 'native'
+  when: gpuenv_ofed_install_mode == 'online'
 
 - name: 在线安装 RDMA 栈（{{ gpuenv_ofed_native_packages | join(', ') }}）
   apt:
     name: "{{ gpuenv_ofed_native_packages }}"
     state: present
-  when: gpuenv_ofed_mode == 'native'
+  when: gpuenv_ofed_install_mode == 'online'
 
 - name: 验证 ibv_devices 工具可用
   command: ibv_devices
   register: ibv_check
   changed_when: false
   failed_when: false
-  when: gpuenv_ofed_mode == 'native'
+  when: gpuenv_ofed_install_mode == 'online'
 
-- name: native 模式安装结果提示
+- name: online 模式安装结果提示
   debug:
     msg: >-
       RDMA 栈安装完成（rdma-core + 内核自带 mlx5 驱动）。
       {{ '检测到 IB 设备: ' + (ibv_check.stdout_lines[2:] | map('trim') | join(', ')) if (ibv_check.rc == 0 and ibv_check.stdout_lines | length > 2) else
          '未检测到 IB 设备（无 IB/RoCE 网卡时属正常，插入网卡后可用 ibv_devices 复查）' }}
-  when: gpuenv_ofed_mode == 'native'
+  when: gpuenv_ofed_install_mode == 'online'
 
 #=============================== package 离线模式 ================================
 # 使用官方 MLNX_OFED tgz 安装器（严格匹配基线版本）
@@ -59,7 +59,7 @@
   changed_when: false
   failed_when: false
   check_mode: no
-  when: gpuenv_ofed_mode == 'package'
+  when: gpuenv_ofed_install_mode == 'package'
 
 - name: 设置 OFED 是否需要安装
   set_fact:
@@ -67,34 +67,55 @@
       {{ gpuenv_force
          or ofed_installed.rc != 0
          or gpuenv_ofed_version not in (ofed_installed.stdout | default('')) }}
-  when: gpuenv_ofed_mode == 'package'
+  when: gpuenv_ofed_install_mode == 'package'
 
 - name: OFED 已安装且版本一致，跳过
   debug:
     msg: "OFED 已安装: {{ ofed_installed.stdout | trim }}，跳过"
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - not gpuenv_ofed_need_install
 
 - name: 下载 OFED 安装包（URL）
   get_url:
     url: "{{ gpuenv_ofed_package }}"
-    dest: /tmp/mlnx_ofed.tgz
+    dest: "{{ gpuenv_pkg_dir }}/mlnx_ofed.tgz"
     mode: '0644'
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
     - gpuenv_ofed_package is match('^https?://')
 
-- name: 拷贝本地 OFED 安装包到 /tmp
+- name: 拷贝本地 OFED 安装包到安装包目录
   copy:
     src: "{{ gpuenv_ofed_package }}"
-    dest: /tmp/mlnx_ofed.tgz
+    dest: "{{ gpuenv_pkg_dir }}/mlnx_ofed.tgz"
     mode: '0644'
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
     - gpuenv_ofed_package is not match('^https?://')
+
+- name: 校验 OFED 安装包为有效 gzip 压缩包
+  shell: |
+    file {{ gpuenv_pkg_dir }}/mlnx_ofed.tgz | grep -q "gzip compressed" \
+      && tar -tzf {{ gpuenv_pkg_dir }}/mlnx_ofed.tgz >/dev/null 2>&1
+  register: ofed_pkg_check
+  changed_when: false
+  failed_when: false
+  when:
+    - gpuenv_ofed_install_mode == 'package'
+    - gpuenv_ofed_need_install | default(true)
+
+- name: OFED 安装包损坏时报错
+  fail:
+    msg: >-
+      {{ gpuenv_pkg_dir }}/mlnx_ofed.tgz 不是有效的 gzip 压缩包（可能下载不完整或已损坏），
+      请删除后重试，或更换 gpuenv_ofed_package 安装包来源
+  when:
+    - gpuenv_ofed_install_mode == 'package'
+    - gpuenv_ofed_need_install | default(true)
+    - ofed_pkg_check.rc != 0
 
 - name: 安装 OFED 编译依赖
   apt:
@@ -105,24 +126,24 @@
       - lsof
     state: present
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
 
+# 注意：不使用 unarchive 模块（对部分 OFED tgz 包处理失败），直接用 tar 解压
 - name: 解压 OFED 安装包
-  unarchive:
-    src: /tmp/mlnx_ofed.tgz
-    dest: /tmp
-    remote_src: yes
+  command: tar -xzf {{ gpuenv_pkg_dir }}/mlnx_ofed.tgz -C {{ gpuenv_pkg_dir }}
+  args:
+    creates: "{{ gpuenv_pkg_dir }}/MLNX_OFED_LINUX-{{ gpuenv_ofed_version }}-ubuntu{{ ansible_distribution_version }}-x86_64"
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
 
 - name: 查找解压后的 OFED 目录
-  shell: ls -d /tmp/MLNX_OFED_LINUX-* 2>/dev/null | head -n 1
+  shell: ls -d {{ gpuenv_pkg_dir }}/MLNX_OFED_LINUX-* 2>/dev/null | head -n 1
   register: ofed_dir
   changed_when: false
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
 
 - name: 执行 OFED 安装（mlnxofedinstall，耗时较长）
@@ -130,19 +151,10 @@
     {{ ofed_dir.stdout }}/mlnxofedinstall
     --add-kernel-support --without-fw-update --force
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
 
-- name: 清理 OFED 临时文件
-  file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /tmp/mlnx_ofed.tgz
-    - "{{ ofed_dir.stdout | default('/tmp/MLNX_OFED_LINUX') }}"
-  when:
-    - gpuenv_ofed_mode == 'package'
-    - gpuenv_ofed_need_install | default(true)
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/mlnx_ofed.tgz 安装包及解压目录，不做删除
 
 - name: 验证 OFED 安装结果
   shell: ofed_info -s 2>/dev/null | head -n 1
@@ -151,7 +163,7 @@
   failed_when: false
   check_mode: no
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
 
 - name: package 模式安装结果提示
@@ -160,5 +172,5 @@
       {{ 'OFED 安装完成: ' + (ofed_verify.stdout | trim) if (ofed_verify.rc | default(1) == 0) else
          'OFED 安装后未检测到 ofed_info，请手动检查（无 IB 网卡时部分功能不可用属正常）' }}
   when:
-    - gpuenv_ofed_mode == 'package'
+    - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)

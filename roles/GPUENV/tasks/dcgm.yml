@@ -1,12 +1,53 @@
 ---
 # 可选组件：DCGM 数据中心 GPU 管理器（硬件诊断 / 监控）
 # 启用方式：-e gpuenv_install_dcgm=true
+# 安装模式（gpuenv_dcgm_install_mode）：
+#   - online（默认）：在线 apt 安装 datacenter-gpu-manager（NVIDIA 官方源）
+#   - package：使用本地 deb 安装包（-e gpuenv_dcgm_package=<deb 包路径或 URL>）
 
-- name: 安装 datacenter-gpu-manager
+#=============================== online 在线模式 ================================
+- name: 安装 datacenter-gpu-manager（online 模式）
   apt:
     name: datacenter-gpu-manager
     state: present
+  when: gpuenv_dcgm_install_mode == 'online'
 
+#=============================== package 离线模式 ================================
+- name: package 模式校验安装包参数
+  fail:
+    msg: >-
+      gpuenv_dcgm_install_mode=package 但未提供安装包，请通过
+      -e gpuenv_dcgm_package=<datacenter-gpu-manager deb 包路径或 URL> 指定
+  when:
+    - gpuenv_dcgm_install_mode == 'package'
+    - gpuenv_dcgm_package | length == 0
+
+- name: 下载 DCGM deb 包（URL）
+  get_url:
+    url: "{{ gpuenv_dcgm_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/datacenter-gpu-manager.deb"
+    mode: '0644'
+  when:
+    - gpuenv_dcgm_install_mode == 'package'
+    - gpuenv_dcgm_package is match('^https?://')
+
+- name: 拷贝本地 DCGM deb 包到安装包目录
+  copy:
+    src: "{{ gpuenv_dcgm_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/datacenter-gpu-manager.deb"
+    mode: '0644'
+  when:
+    - gpuenv_dcgm_install_mode == 'package'
+    - gpuenv_dcgm_package is not match('^https?://')
+
+- name: 安装 DCGM（package 模式，本地 deb 包）
+  apt:
+    deb: "{{ gpuenv_pkg_dir }}/datacenter-gpu-manager.deb"
+  when: gpuenv_dcgm_install_mode == 'package'
+
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/datacenter-gpu-manager.deb 安装包，不做删除
+
+#=============================== 公共：服务管理 ===================================
 - name: 刷新 systemd 单元缓存
   systemd:
     daemon_reload: yes

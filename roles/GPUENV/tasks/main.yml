@@ -1,63 +1,103 @@
 ---
 #===============================================================================
 # GPUENV role 主任务入口
-# 对应 install_GPUENV.md 在线安装流程（步骤 2 ~ 步骤 7）
+# 设计原则：
+#   1. 默认不安装任何组件，全部由用户通过 -e gpuenv_install_<组件>=true 指定
+#   2. 每个组件对应独立的任务 yaml，均支持 online（在线）/ package（离线）两种模式
+#   3. 组件间依赖：cuda_repo（在线模式）与编译依赖按需自动准备
 #===============================================================================
 
 - name: 前置检查
   import_tasks: precheck.yml
   tags: [gpuenv, precheck]
 
-- name: 安装编译依赖
-  import_tasks: build_deps.yml
-  tags: [gpuenv, deps]
+- name: 确保安装包存放目录存在（{{ gpuenv_pkg_dir }}）
+  file:
+    path: "{{ gpuenv_pkg_dir }}"
+    state: directory
+    mode: '0755'
+  tags: [gpuenv]
 
-- name: 配置 NVIDIA CUDA 软件源
+# 在线模式组件需要 NVIDIA 官方 apt 源（驱动 / CUDA / fabricmanager / NCCL / DCGM / container-toolkit）
+- name: 配置 NVIDIA CUDA 软件源（在线模式组件按需）
   import_tasks: cuda_repo.yml
+  when: >
+    (gpuenv_install_driver and gpuenv_driver_install_mode == 'online')
+    or (gpuenv_install_cuda and gpuenv_cuda_install_mode == 'online')
+    or (gpuenv_install_fabricmanager and gpuenv_fm_install_mode == 'online')
+    or (gpuenv_install_nccl and gpuenv_nccl_install_mode == 'online')
+    or (gpuenv_install_dcgm and gpuenv_dcgm_install_mode == 'online')
+    or (gpuenv_install_container_toolkit and gpuenv_container_toolkit_install_mode == 'online')
   tags: [gpuenv, repo]
 
-- name: 安装 MLNX OFED（可选，必须在 GPU 驱动之前）
-  import_tasks: ofed.yml
+# 编译依赖：驱动 / OFED / NCCL / gpu-burn 编译安装时需要
+- name: 安装编译依赖（按需）
+  import_tasks: build_deps.yml
+  when: >
+    gpuenv_install_driver
+    or gpuenv_install_ofed
+    or gpuenv_install_nccl
+    or gpuenv_install_gpu_burn
+  tags: [gpuenv, deps]
+
+- name: 安装 MLNX OFED / RDMA 栈（可选，必须在 GPU 驱动之前）
+  include_tasks: ofed.yml
   when: gpuenv_install_ofed
   tags: [gpuenv, ofed]
 
 - name: 安装 NVIDIA 显卡驱动
-  import_tasks: driver.yml
+  include_tasks: driver.yml
+  when: gpuenv_install_driver
   tags: [gpuenv, driver]
 
-- name: 加载 nvidia_peermem（多机通信，驱动之后执行）
-  import_tasks: peermem.yml
-  when: gpuenv_enable_peermem
+- name: 加载 nvidia_peermem（多机通信，依赖驱动）
+  include_tasks: peermem.yml
+  when: gpuenv_install_peermem
   tags: [gpuenv, peermem]
 
 - name: 关闭 PCI ACS（多机通信要求）
-  import_tasks: pci_acs.yml
-  when: gpuenv_disable_pci_acs
+  include_tasks: pci_acs.yml
+  when: gpuenv_install_pci_acs
   tags: [gpuenv, pci_acs]
 
 - name: 安装 CUDA Toolkit
-  import_tasks: cuda_toolkit.yml
+  include_tasks: cuda_toolkit.yml
+  when: gpuenv_install_cuda
   tags: [gpuenv, cuda]
 
 - name: 安装 nvidia-fabricmanager
-  import_tasks: fabricmanager.yml
+  include_tasks: fabricmanager.yml
+  when: gpuenv_install_fabricmanager
   tags: [gpuenv, fabricmanager]
 
 - name: 编译 gpu-burn
-  import_tasks: gpu_burn.yml
+  include_tasks: gpu_burn.yml
+  when: gpuenv_install_gpu_burn
   tags: [gpuenv, gpu_burn]
 
-- name: 安装 NCCL + nccl-tests（可选）
-  import_tasks: nccl.yml
+- name: 安装 NCCL + OpenMPI + nccl-tests
+  include_tasks: nccl.yml
   when: gpuenv_install_nccl
   tags: [gpuenv, nccl]
 
-- name: 安装 DCGM 监控（可选）
-  import_tasks: dcgm.yml
+- name: 安装 DCGM 监控
+  include_tasks: dcgm.yml
   when: gpuenv_install_dcgm
   tags: [gpuenv, dcgm]
 
-- name: 安装 nvidia-container-toolkit（可选）
-  import_tasks: container_toolkit.yml
+- name: 安装 nvidia-container-toolkit
+  include_tasks: container_toolkit.yml
   when: gpuenv_install_container_toolkit
   tags: [gpuenv, container_toolkit]
+
+- name: 未指定任何组件时提示
+  debug:
+    msg: >-
+      未指定任何组件（所有 gpuenv_install_* 均为 false），本次未执行安装。
+      请通过 -e gpuenv_install_driver=true 等参数指定要安装的组件。
+  when: >
+    not (gpuenv_install_ofed or gpuenv_install_driver or gpuenv_install_peermem
+         or gpuenv_install_pci_acs or gpuenv_install_cuda or gpuenv_install_fabricmanager
+         or gpuenv_install_gpu_burn or gpuenv_install_nccl or gpuenv_install_dcgm
+         or gpuenv_install_container_toolkit)
+  tags: [gpuenv]

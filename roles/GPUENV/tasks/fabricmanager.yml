@@ -1,5 +1,8 @@
 ---
 # 步骤 6：安装 nvidia-fabricmanager（对应手册：版本必须与驱动完全一致）
+# 安装模式（gpuenv_fm_install_mode）：
+#   - online（默认）：在线 apt 安装（NVIDIA 官方源），版本与驱动完全一致
+#   - package：使用本地 deb 安装包（gpuenv_fm_package），适用于离线/源中无对应版本场景
 
 - name: 设置 fabricmanager 目标版本（默认与驱动一致）
   set_fact:
@@ -18,6 +21,14 @@
   set_fact:
     gpuenv_fm_installed_ver: "{{ fm_installed.stdout | trim }}"
 
+- name: 设置 fabricmanager 是否需要安装
+  set_fact:
+    gpuenv_fm_need_install: >-
+      {{ gpuenv_force
+         or gpuenv_fm_installed_ver == ''
+         or gpuenv_fm_target not in gpuenv_fm_installed_ver }}
+
+#=============================== online 在线模式 ================================
 - name: 查找源中与目标版本匹配的 fabricmanager 包版本
   shell: >
     apt-cache madison {{ gpuenv_fm_pkg }}
@@ -25,28 +36,70 @@
     | grep -F "{{ gpuenv_fm_target }}" | head -n 1
   register: fm_repo_ver
   changed_when: false
+  when: gpuenv_fm_install_mode == 'online'
 
-- name: fabricmanager 版本不存在时报错
+- name: fabricmanager 版本不存在时报错（online 模式）
   fail:
-    msg: "源中未找到 {{ gpuenv_fm_pkg }} 版本 {{ gpuenv_fm_target }}，请检查版本配置"
-  when: fm_repo_ver.stdout | trim | length == 0
+    msg: >-
+      源中未找到 {{ gpuenv_fm_pkg }} 版本 {{ gpuenv_fm_target }}。
+      请检查版本配置，或改用离线模式：
+      -e gpuenv_fm_install_mode=package -e gpuenv_fm_package=<deb 包路径或 URL>
+  when:
+    - gpuenv_fm_install_mode == 'online'
+    - fm_repo_ver.stdout | trim | length == 0
 
-- name: 安装 fabricmanager（版本与驱动完全一致）
+- name: 安装 fabricmanager（online 模式，版本与驱动完全一致）
   apt:
     name: "{{ gpuenv_fm_pkg }}={{ fm_repo_ver.stdout | trim }}"
     state: present
-  when: >
-    gpuenv_force
-    or gpuenv_fm_installed_ver == ''
-    or gpuenv_fm_target not in gpuenv_fm_installed_ver
+  when:
+    - gpuenv_fm_install_mode == 'online'
+    - gpuenv_fm_need_install
 
+#=============================== package 离线模式 ================================
+- name: package 模式校验安装包参数
+  fail:
+    msg: >-
+      gpuenv_fm_install_mode=package 但未提供安装包，请通过
+      -e gpuenv_fm_package=<nvidia-fabricmanager deb 包路径或 URL> 指定
+  when:
+    - gpuenv_fm_install_mode == 'package'
+    - gpuenv_fm_package | length == 0
+
+- name: 下载 fabricmanager deb 包（URL）
+  get_url:
+    url: "{{ gpuenv_fm_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nvidia-fabricmanager.deb"
+    mode: '0644'
+  when:
+    - gpuenv_fm_install_mode == 'package'
+    - gpuenv_fm_need_install
+    - gpuenv_fm_package is match('^https?://')
+
+- name: 拷贝本地 fabricmanager deb 包到安装包目录
+  copy:
+    src: "{{ gpuenv_fm_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nvidia-fabricmanager.deb"
+    mode: '0644'
+  when:
+    - gpuenv_fm_install_mode == 'package'
+    - gpuenv_fm_need_install
+    - gpuenv_fm_package is not match('^https?://')
+
+- name: 安装 fabricmanager（package 模式，本地 deb 包）
+  apt:
+    deb: "{{ gpuenv_pkg_dir }}/nvidia-fabricmanager.deb"
+  when:
+    - gpuenv_fm_install_mode == 'package'
+    - gpuenv_fm_need_install
+
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/nvidia-fabricmanager.deb 安装包，不做删除
+
+#=============================== 公共：服务管理 ===================================
 - name: fabricmanager 已安装且版本一致，跳过安装
   debug:
     msg: "{{ gpuenv_fm_pkg }} 已安装 {{ gpuenv_fm_installed_ver }}，与目标版本一致，跳过安装"
-  when: >
-    not gpuenv_force
-    and gpuenv_fm_installed_ver != ''
-    and gpuenv_fm_target in gpuenv_fm_installed_ver
+  when: not gpuenv_fm_need_install
 
 - name: 刷新 systemd 单元缓存（避免卸载后重装时单元加载异常）
   systemd:
@@ -70,8 +123,8 @@
   changed_when: false
   failed_when: false
 
-- name: fabricmanager 启动结果提示
+- name: fabricmanager 服务状态提示
   debug:
     msg: >-
       {{ 'fabricmanager 服务已启动' if fm_active.stdout | trim == 'active' else
-         'fabricmanager 未运行（无 GPU / 无 NVLink 硬件时属正常现象）' }}
+         'fabricmanager 服务未运行（无 GPU / 无 NVLink 硬件时属正常现象）' }}

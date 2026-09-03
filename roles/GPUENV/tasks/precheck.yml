@@ -1,5 +1,5 @@
 ---
-# 前置检查：确认目标为 Ubuntu 系统（对应手册环境说明）
+# 前置检查：确认目标为 Ubuntu 系统，并显示本次安装计划
 
 - name: 确认目标系统为 Ubuntu
   assert:
@@ -11,9 +11,15 @@
 - name: 显示安装计划
   debug:
     msg:
-      - "CUDA 源地址   : {{ gpuenv_repo_base_url }}"
-      - "gpu-burn 源  : {{ gpuenv_gpu_burn_url }}"
-      - "驱动版本      : {{ gpuenv_driver_version }}"
-      - "CUDA 版本     : {{ gpuenv_cuda_version }}"
-      - "fabricmanager : {{ gpuenv_fm_version | default(gpuenv_driver_version, true) }}"
-      - "强制重装      : {{ gpuenv_force }}"
+      - "本次启用的组件（未列出的组件默认不安装）："
+      - "  OFED              : {{ gpuenv_install_ofed }}{{ '（模式: ' + gpuenv_ofed_install_mode + '）' if gpuenv_install_ofed else '' }}"
+      - "  GPU 驱动          : {{ gpuenv_install_driver }}{{ '（模式: ' + gpuenv_driver_install_mode + '，版本: ' + gpuenv_driver_version + '）' if gpuenv_install_driver else '' }}"
+      - "  nvidia_peermem    : {{ gpuenv_install_peermem }}"
+      - "  关闭 PCI ACS      : {{ gpuenv_install_pci_acs }}"
+      - "  CUDA Toolkit      : {{ gpuenv_install_cuda }}{{ '（模式: ' + gpuenv_cuda_install_mode + '，版本: ' + gpuenv_cuda_version + '）' if gpuenv_install_cuda else '' }}"
+      - "  fabricmanager     : {{ gpuenv_install_fabricmanager }}{{ '（模式: ' + gpuenv_fm_install_mode + '，版本: ' + (gpuenv_fm_version if gpuenv_fm_version | length > 0 else gpuenv_driver_version) + '）' if gpuenv_install_fabricmanager else '' }}"
+      - "  gpu-burn          : {{ gpuenv_install_gpu_burn }}{{ '（模式: ' + gpuenv_gpu_burn_install_mode + '）' if gpuenv_install_gpu_burn else '' }}"
+      - "  NCCL + nccl-tests : {{ gpuenv_install_nccl }}{{ '（模式: ' + gpuenv_nccl_install_mode + '，NCCL: ' + gpuenv_nccl_version + '）' if gpuenv_install_nccl else '' }}"
+      - "  DCGM              : {{ gpuenv_install_dcgm }}{{ '（模式: ' + gpuenv_dcgm_install_mode + '）' if gpuenv_install_dcgm else '' }}"
+      - "  container-toolkit : {{ gpuenv_install_container_toolkit }}{{ '（模式: ' + gpuenv_container_toolkit_install_mode + '）' if gpuenv_install_container_toolkit else '' }}"
+      - "强制重装: {{ gpuenv_force }}"

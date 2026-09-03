@@ -1,6 +1,8 @@
 ---
-# 步骤 4：安装 NVIDIA 显卡驱动（对应手册：在线安装 550 系列驱动）
-# 精确指定版本时锁定全部驱动子包，避免依赖冲突
+# 步骤 4：安装 NVIDIA 显卡驱动
+# 安装模式（gpuenv_driver_install_mode）：
+#   - online（默认）：在线 apt 安装，精确指定版本时锁定全部驱动子包，避免依赖冲突
+#   - package：使用官方 .run 安装器（离线/无 apt 源场景），--silent --dkms 安装
 
 - name: 检查驱动是否已安装（仅完全安装状态 ii 视为已安装）
   shell: |
@@ -14,6 +16,23 @@
   set_fact:
     gpuenv_driver_installed_ver: "{{ driver_installed.stdout | trim }}"
 
+- name: 设置驱动是否需要安装
+  set_fact:
+    gpuenv_driver_need_install: >-
+      {{ gpuenv_force
+         or gpuenv_driver_installed_ver == ''
+         or gpuenv_driver_version not in gpuenv_driver_installed_ver }}
+
+#=============================== online 在线模式 ================================
+- name: 等待 apt/dpkg 锁释放（避免 unattended-upgrades 等进程占用导致失败）
+  shell: |
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+       || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+      sleep 5
+    done
+  changed_when: false
+  when: gpuenv_driver_install_mode == 'online'
+
 - name: 查找源中与目标版本匹配的驱动包版本
   shell: >
     apt-cache madison nvidia-driver-{{ gpuenv_driver_major }}
@@ -21,11 +40,14 @@
     | grep -F "{{ gpuenv_driver_version }}" | head -n 1
   register: driver_repo_ver
   changed_when: false
+  when: gpuenv_driver_install_mode == 'online'
 
 - name: 驱动版本不存在时报错
   fail:
     msg: "源中未找到驱动版本 {{ gpuenv_driver_version }}（系列 {{ gpuenv_driver_major }}），请检查 gpuenv_driver_version 变量"
-  when: driver_repo_ver.stdout | trim | length == 0
+  when:
+    - gpuenv_driver_install_mode == 'online'
+    - driver_repo_ver.stdout | trim | length == 0
 
 - name: 构建驱动子包安装列表（仅保留源中真实存在的子包，全部锁定同一版本）
   shell: |
@@ -34,24 +56,104 @@
     done
   register: driver_install_list
   changed_when: false
+  when: gpuenv_driver_install_mode == 'online'
 
-- name: 安装 NVIDIA 驱动（锁定全部子包版本）
+- name: 安装 NVIDIA 驱动（online 模式，锁定全部子包版本）
   apt:
     name: "{{ driver_install_list.stdout_lines }}"
     state: present
-  when: >
-    gpuenv_force
-    or gpuenv_driver_installed_ver == ''
-    or gpuenv_driver_version not in gpuenv_driver_installed_ver
+  when:
+    - gpuenv_driver_install_mode == 'online'
+    - gpuenv_driver_need_install
 
-- name: 驱动已安装且版本一致，跳过
+- name: 驱动已安装且版本一致，跳过（online 模式）
   debug:
     msg: "驱动 nvidia-driver-{{ gpuenv_driver_major }} 已安装 {{ gpuenv_driver_installed_ver }}，与目标版本一致，跳过"
-  when: >
-    not gpuenv_force
-    and gpuenv_driver_installed_ver != ''
-    and gpuenv_driver_version in gpuenv_driver_installed_ver
+  when:
+    - gpuenv_driver_install_mode == 'online'
+    - not gpuenv_driver_need_install
 
+#=============================== package 离线模式 ================================
+# 使用官方 .run 安装器，--silent --dkms 静默安装（dkms 保证内核升级后自动重编译）
+
+- name: package 模式校验安装包参数
+  fail:
+    msg: >-
+      gpuenv_driver_install_mode=package 但未提供安装包，请通过
+      -e gpuenv_driver_package=<NVIDIA-Linux-x86_64-xxx.run 路径或 URL> 指定
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - gpuenv_driver_package | length == 0
+
+- name: 检查驱动是否已安装（run 方式，读取 nvidia-smi 版本）
+  shell: |
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1
+    fi
+  register: driver_run_installed
+  changed_when: false
+  failed_when: false
+  check_mode: no
+  when: gpuenv_driver_install_mode == 'package'
+
+- name: 驱动已安装且版本一致，跳过（package 模式）
+  debug:
+    msg: "驱动已安装 {{ driver_run_installed.stdout | trim }}，与目标版本一致，跳过"
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - not gpuenv_force
+    - driver_run_installed.stdout | trim == gpuenv_driver_version
+
+- name: 下载驱动 run 安装包（URL）
+  get_url:
+    url: "{{ gpuenv_driver_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nvidia-driver.run"
+    mode: '0755'
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - gpuenv_driver_need_install or (driver_run_installed.stdout | trim != gpuenv_driver_version)
+    - gpuenv_driver_package is match('^https?://')
+
+- name: 拷贝本地驱动 run 安装包到安装包目录
+  copy:
+    src: "{{ gpuenv_driver_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nvidia-driver.run"
+    mode: '0755'
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - gpuenv_driver_need_install or (driver_run_installed.stdout | trim != gpuenv_driver_version)
+    - gpuenv_driver_package is not match('^https?://')
+
+- name: 执行驱动 run 安装（--silent --dkms，耗时较长）
+  command: >
+    {{ gpuenv_pkg_dir }}/nvidia-driver.run --silent --dkms
+    --no-questions --no-cc-version-check
+  register: driver_run_install
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - gpuenv_driver_need_install or (driver_run_installed.stdout | trim != gpuenv_driver_version)
+
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/nvidia-driver.run 安装包，不做删除
+
+- name: 验证驱动 run 安装结果
+  shell: nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1
+  register: driver_run_verify
+  changed_when: false
+  failed_when: false
+  check_mode: no
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - gpuenv_driver_need_install or (driver_run_installed.stdout | trim != gpuenv_driver_version)
+
+- name: 驱动 run 安装失败时报错
+  fail:
+    msg: "驱动 run 安装失败，请检查安装日志（/var/log/nvidia-installer.log）"
+  when:
+    - gpuenv_driver_install_mode == 'package'
+    - gpuenv_driver_need_install or (driver_run_installed.stdout | trim != gpuenv_driver_version)
+    - driver_run_verify.stdout | trim | length == 0
+
+#=============================== 公共：重启（可选） ==============================
 - name: 驱动安装后重启服务器（可选）
   reboot:
     reboot_timeout: 600

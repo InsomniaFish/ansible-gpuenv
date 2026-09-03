@@ -6,11 +6,11 @@
 # 项目基准目录（与 GPUENV role 保持一致）
 gpuenv_base_dir: "/root/ansible-gpuenv"
 
-# gpu-burn 安装目录（基于基准目录的相对位置）
-gpuenv_gpu_burn_dir: "{{ gpuenv_base_dir }}/gpu-burn-master"
+# gpu-burn 安装目录（统一在 /opt 下）
+gpuenv_gpu_burn_dir: "/opt/gpu-burn"
 
-# nccl-tests 安装目录（基于基准目录的相对位置）
-gpuenv_nccl_tests_dir: "{{ gpuenv_base_dir }}/nccl-tests-master"
+# nccl-tests 安装目录（统一在 /opt 下）
+gpuenv_nccl_tests_dir: "/opt/nccl-tests"
 
 # OpenMPI 安装目录（源码编译安装位置）
 gpuenv_openmpi_dir: "/usr/local/openmpi"

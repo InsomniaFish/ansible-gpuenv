@@ -1,7 +1,7 @@
 ---
 # 步骤 5：安装 CUDA Toolkit（对应手册：仅安装 Toolkit 本体，不含驱动）
 # 安装模式（gpuenv_cuda_install_mode）：
-#   - apt（默认）：在线 apt 安装，支持两位版本（12.6）与三位版本（12.6.2 精确锁定）
+#   - online（默认）：在线 apt 安装，支持两位版本（12.6）与三位版本（12.6.2 精确锁定）
 #   - package：使用官方 run 安装包（gpuenv_cuda_package），以 --silent --toolkit
 #     方式仅安装 Toolkit（不装驱动，等效文档"取消勾选 Driver"），适用于离线场景
 
@@ -10,7 +10,7 @@
     gpuenv_cuda_pkg: "cuda-toolkit-{{ gpuenv_cuda_version.split('.')[:2] | join('-') }}"
     gpuenv_cuda_series: "{{ gpuenv_cuda_version.split('.')[:2] | join('.') }}"
 
-#=============================== apt 在线模式 ===================================
+#=============================== online 在线模式 ================================
 - name: 检查 CUDA Toolkit 是否已安装（仅完全安装状态 ii 视为已安装）
   shell: |
     status=$(dpkg-query -W -f='${db:Status-Abbrev}' {{ gpuenv_cuda_pkg }} 2>/dev/null | cut -c1-2)
@@ -18,25 +18,25 @@
   register: cuda_installed
   changed_when: false
   failed_when: false
-  when: gpuenv_cuda_install_mode == 'apt'
+  when: gpuenv_cuda_install_mode == 'online'
 
-- name: 设置已安装 CUDA 版本事实（apt 模式）
+- name: 设置已安装 CUDA 版本事实（online 模式）
   set_fact:
     gpuenv_cuda_installed_ver: "{{ cuda_installed.stdout | trim }}"
-  when: gpuenv_cuda_install_mode == 'apt'
+  when: gpuenv_cuda_install_mode == 'online'
 
 - name: 校验源中存在目标 CUDA 包
   shell: apt-cache show {{ gpuenv_cuda_pkg }}
   register: cuda_pkg_check
   changed_when: false
   failed_when: false
-  when: gpuenv_cuda_install_mode == 'apt'
+  when: gpuenv_cuda_install_mode == 'online'
 
 - name: CUDA 包不存在时报错
   fail:
     msg: "源中未找到 {{ gpuenv_cuda_pkg }}，请检查 gpuenv_cuda_version 变量"
   when:
-    - gpuenv_cuda_install_mode == 'apt'
+    - gpuenv_cuda_install_mode == 'online'
     - cuda_pkg_check.rc != 0
 
 - name: 查找源中与目标版本匹配的完整版本号
@@ -46,31 +46,31 @@
     | grep -F "{{ gpuenv_cuda_version }}" | head -n 1
   register: cuda_repo_ver
   changed_when: false
-  when: gpuenv_cuda_install_mode == 'apt'
+  when: gpuenv_cuda_install_mode == 'online'
 
 - name: CUDA 版本不存在时报错
   fail:
     msg: "源中未找到 {{ gpuenv_cuda_pkg }} 版本 {{ gpuenv_cuda_version }}，请检查版本配置"
   when:
-    - gpuenv_cuda_install_mode == 'apt'
+    - gpuenv_cuda_install_mode == 'online'
     - cuda_repo_ver.stdout | trim | length == 0
 
-- name: 安装 CUDA Toolkit（apt 模式，锁定目标版本）
+- name: 安装 CUDA Toolkit（online 模式，锁定目标版本）
   apt:
     name: "{{ gpuenv_cuda_pkg }}={{ cuda_repo_ver.stdout | trim }}"
     state: present
   when:
-    - gpuenv_cuda_install_mode == 'apt'
+    - gpuenv_cuda_install_mode == 'online'
     - >
       gpuenv_force
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
 
-- name: CUDA 已安装且版本一致，跳过（apt 模式）
+- name: CUDA 已安装且版本一致，跳过（online 模式）
   debug:
     msg: "{{ gpuenv_cuda_pkg }} 已安装 {{ gpuenv_cuda_installed_ver }}，与目标版本一致，跳过"
   when:
-    - gpuenv_cuda_install_mode == 'apt'
+    - gpuenv_cuda_install_mode == 'online'
     - not gpuenv_force
     - gpuenv_cuda_installed_ver != ''
     - gpuenv_cuda_version in gpuenv_cuda_installed_ver
@@ -116,7 +116,7 @@
 - name: 下载 CUDA run 安装包（URL）
   get_url:
     url: "{{ gpuenv_cuda_package }}"
-    dest: /tmp/cuda_installer.run
+    dest: "{{ gpuenv_pkg_dir }}/cuda_installer.run"
     mode: '0755'
   when:
     - gpuenv_cuda_install_mode == 'package'
@@ -126,10 +126,10 @@
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
     - gpuenv_cuda_package is match('^https?://')
 
-- name: 拷贝本地 CUDA run 安装包到 /tmp
+- name: 拷贝本地 CUDA run 安装包到安装包目录
   copy:
     src: "{{ gpuenv_cuda_package }}"
-    dest: /tmp/cuda_installer.run
+    dest: "{{ gpuenv_pkg_dir }}/cuda_installer.run"
     mode: '0755'
   when:
     - gpuenv_cuda_install_mode == 'package'
@@ -141,7 +141,7 @@
 
 - name: 执行 CUDA run 安装（仅 Toolkit，不含驱动，耗时较长）
   command: >
-    /tmp/cuda_installer.run --silent --toolkit
+    {{ gpuenv_pkg_dir }}/cuda_installer.run --silent --toolkit
     --toolkitpath=/usr/local/cuda-{{ gpuenv_cuda_series }}
     --override
   register: cuda_run_install
@@ -152,16 +152,7 @@
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
 
-- name: 清理 CUDA run 安装包
-  file:
-    path: /tmp/cuda_installer.run
-    state: absent
-  when:
-    - gpuenv_cuda_install_mode == 'package'
-    - >
-      gpuenv_force
-      or gpuenv_cuda_installed_ver == ''
-      or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/cuda_installer.run 安装包，不做删除
 
 - name: 验证 CUDA run 安装结果
   shell: |

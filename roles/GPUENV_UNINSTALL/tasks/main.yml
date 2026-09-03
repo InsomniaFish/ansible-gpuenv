@@ -193,11 +193,12 @@
   shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda|libnccl|datacenter-gpu-manager)" | awk '{print $2}' || true
   register: uninstall_verify
   changed_when: false
+  check_mode: no
 
 - name: 输出卸载结果
   debug:
     msg:
       - "卸载计划: {{ gpuenv_uninstall_selected | join(', ') }}"
       - >-
-        {{ '指定组件卸载完成，无相关残留包' if (uninstall_verify.stdout | trim | length == 0)
+        {{ '指定组件卸载完成，无相关残留包' if (uninstall_verify.stdout | default('') | trim | length == 0)
            else '卸载完成，系统中仍存在以下相关包（可能不在本次卸载范围内）: ' + uninstall_verify.stdout }}
