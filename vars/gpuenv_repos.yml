@@ -14,9 +14,9 @@
 
 # --- 源 URL 配置 ---
 # NVIDIA CUDA 官方软件源基础地址（驱动 / CUDA / fabricmanager / NCCL / DCGM 均来自该源）
-#   - 国内加速：域名可改为 developer.download.nvidia.cn
+#   - 当前已使用国内镜像 developer.download.nvidia.cn（与海外源内容一致）
 #   - 其他系统：ubuntu2204 可改为 ubuntu2004 / ubuntu2404 等
-gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+gpuenv_repo_base_url: "https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64"
 
 # cuda-keyring 软件源密钥包文件名（与 gpuenv_repo_base_url 拼接为完整下载地址）
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
@@ -36,7 +36,7 @@ gpuenv_nccl_version: "2.28.9"          # NCCL 版本（需与 CUDA 版本配套�
 # 本地路径或 URL，默认官方直链
 # 注意：run 包文件名中的驱动版本（560.35.03）与 gpuenv_driver_version 可能不同，
 # 其他 CUDA 版本需按官方归档页调整：https://developer.nvidia.com/cuda-toolkit-archive
-gpuenv_cuda_package: "https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
+gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
 
 # --- 可选组件源配置 ---
 # NCCL 官方下载页（离线 deb 包备用获取渠道，按 CUDA 版本选择对应包）：

@@ -92,6 +92,24 @@ cd MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64
 
 ## 四、NVIDIA GPU 驱动
 
+### 查看源中可用的驱动版本
+
+```bash
+# 查看指定系列的全部版本（如 580 系列）
+apt-cache madison nvidia-driver-580
+
+# 只列版本号（便于对比）
+apt-cache madison nvidia-driver-580 | awk -F'|' '{gsub(/ /,"",$2); print $2}' | sort -u
+
+# 查看源中所有可用驱动系列
+apt-cache search '^nvidia-driver-[0-9]+' | awk '{print $1}' | sort -u
+
+# 查看已安装版本与候选升级版本
+apt-cache policy nvidia-driver-580
+```
+
+> 注：`madison` 结果来自本地 apt 缓存，新发布的版本需先 `apt-get update` 才能看到。
+
 ### 在线安装（apt，自动处理依赖）
 
 ```bash
@@ -134,6 +152,15 @@ reboot
 
 ### 在线安装（apt）
 
+查看源中可用的 CUDA Toolkit 版本：
+
+```bash
+apt-cache search '^cuda-toolkit-' | awk '{print $1}' | sort -u
+apt-cache madison cuda-toolkit-13-0
+```
+
+安装：
+
 ```bash
 # 13.0 系列（主.次版本拼接包名）
 apt-get install -y cuda-toolkit-13-0
@@ -168,7 +195,11 @@ source /etc/profile.d/cuda.sh
 
 ## 六、nvidia-fabricmanager（多卡 NVLink 必装）
 
-版本必须与驱动**完全一致**（580.105.08）。
+版本必须与驱动**完全一致**。查看源中可用版本：
+
+```bash
+apt-cache madison nvidia-fabricmanager-580    # 版本须与已装驱动完全匹配
+```
 
 ### 在线安装（apt）
 
@@ -206,7 +237,11 @@ systemctl status nvidia-fabricmanager    # active (running)
 apt-get install -y libnccl2=2.28.9-1+cuda13.0 libnccl-dev=2.28.9-1+cuda13.0
 ```
 
-> 版本需与 CUDA 系列配套（cuda13.0），可用 `apt-cache madison libnccl2` 查询源中可用版本。
+> 版本需与 CUDA 系列配套（cuda13.0）。查看源中可用版本：
+>
+> ```bash
+> apt-cache madison libnccl2 | grep cuda13.0    # 按 CUDA 系列过滤
+> ```
 
 ### 离线安装（deb 包）
 

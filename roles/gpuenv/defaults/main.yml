@@ -45,7 +45,7 @@ gpuenv_container_toolkit_install_mode: "online"
 gpuenv_driver_package: ""
 # CUDA run 安装包，官方归档页：https://developer.nvidia.com/cuda-toolkit-archive
 # 默认官方直链（12.6.2，捆绑驱动 560.35.03；其他版本需按归档页调整）
-gpuenv_cuda_package: "https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
+gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
 # fabricmanager deb 安装包（源中无对应版本时使用），例如：
 #   https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_<版本>-1_amd64.deb
 gpuenv_fm_package: ""
@@ -66,7 +66,7 @@ gpuenv_dcgm_package: ""
 gpuenv_container_toolkit_package: ""
 
 # --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供） ---
-gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+gpuenv_repo_base_url: "https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64"
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
 gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 gpuenv_driver_version: "580.105.08"
