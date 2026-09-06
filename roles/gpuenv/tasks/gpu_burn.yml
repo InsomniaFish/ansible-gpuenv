@@ -60,16 +60,30 @@
     state: absent
   when: gpuenv_force or not gpu_burn_bin.stat.exists
 
-# 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/gpu-burn）
+# 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/build/gpu-burn）
+- name: 清理临时解压目录（gpu-burn）
+  file:
+    path: /tmp/gpu-burn-extract
+    state: absent
+
+- name: 确保构建目录父目录存在（gpu-burn）
+  file:
+    path: "{{ gpuenv_gpu_burn_dir | dirname }}"
+    state: directory
+    mode: '0755'
+
 - name: 解压 gpu-burn 源码到目标目录
   shell: |
-    rm -rf /tmp/gpu-burn-extract
     unzip -o {{ gpuenv_pkg_dir }}/gpu-burn-src.zip -d /tmp/gpu-burn-extract >/dev/null
-    mkdir -p {{ gpuenv_gpu_burn_dir | dirname }}
     mv /tmp/gpu-burn-extract/* {{ gpuenv_gpu_burn_dir }}
-    rm -rf /tmp/gpu-burn-extract
   args:
     creates: "{{ gpuenv_gpu_burn_dir }}"
+  when: gpuenv_force or not gpu_burn_bin.stat.exists
+
+- name: 清理临时解压目录（gpu-burn，收尾）
+  file:
+    path: /tmp/gpu-burn-extract
+    state: absent
   when: gpuenv_force or not gpu_burn_bin.stat.exists
 
 - name: 编译 gpu-burn

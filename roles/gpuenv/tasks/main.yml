@@ -18,6 +18,13 @@
     mode: '0755'
   tags: [gpuenv]
 
+- name: 确保构建目录存在（{{ gpuenv_build_dir }}）
+  file:
+    path: "{{ gpuenv_build_dir }}"
+    state: directory
+    mode: '0755'
+  tags: [gpuenv]
+
 # 在线模式组件需要 NVIDIA 官方 apt 源（驱动 / CUDA / fabricmanager / NCCL / DCGM / container-toolkit）
 - name: 配置 NVIDIA CUDA 软件源（在线模式组件按需）
   import_tasks: cuda_repo.yml
@@ -74,6 +81,15 @@
   include_tasks: gpu_burn.yml
   when: gpuenv_install_gpu_burn
   tags: [gpuenv, gpu_burn]
+
+# 主机间 SSH 免密互信（nccl-tests 多机测试前置，默认开启）
+- name: 配置主机间 SSH 免密互信（nccl-tests 前置）
+  include_tasks: ssh_trust.yml
+  when: >
+    gpuenv_install_nccl
+    and (gpuenv_nccl_tests_ssh_trust | bool)
+    and (ansible_play_hosts | length > 1)
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: 安装 NCCL + OpenMPI + nccl-tests
   include_tasks: nccl.yml

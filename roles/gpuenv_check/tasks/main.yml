@@ -34,6 +34,11 @@
   changed_when: false
   failed_when: false
 
+- name: 检查 fabricmanager 安装版本
+  shell: dpkg-query -W -f='${Version}' nvidia-fabricmanager 2>/dev/null || echo "未安装"
+  register: check_fm_ver
+  changed_when: false
+
 - name: 检查 fabricmanager 服务状态
   command: systemctl is-active nvidia-fabricmanager
   register: check_fm_active
@@ -151,6 +156,39 @@
   changed_when: false
   failed_when: false
 
+- name: 设置组件安装状态汇总事实
+  set_fact:
+    check_summary:
+      - { comp: "ofed",              name: "MLNX OFED（IB 网络驱动）",            installed: "{{ ('未安装' not in check_ofed.stdout) or ('未安装' not in check_rdma_core.stdout) }}" }
+      - { comp: "driver",           name: "NVIDIA GPU DRIVER（GPU 驱动）",      installed: "{{ check_pkgs.stdout is search('(^|\\s)nvidia-driver-') }}" }
+      - { comp: "peermem",           name: "NVIDIA_PEERMEM（GPUDirect RDMA）",   installed: "{{ (check_peermem.stdout | trim) == '已加载' }}" }
+      - { comp: "pci_acs",          name: "PCI ACS（关闭 ACS）",                 installed: "{{ '未启用' not in check_acs.stdout }}" }
+      - { comp: "cuda",              name: "CUDA TOOLKIT（计算工具链）",          installed: "{{ check_nvcc.rc == 0 }}" }
+      - { comp: "fabricmanager",     name: "NVIDIA FABRICMANAGER（NVLink 互联）", installed: "{{ '未安装' not in check_fm_ver.stdout }}" }
+      - { comp: "gpu_burn",          name: "GPU-BURN（压力测试）",                installed: "{{ check_gpu_burn.stat.exists }}" }
+      - { comp: "nccl",              name: "NCCL（集合通信库）",                  installed: "{{ '未安装' not in check_nccl.stdout }}" }
+      - { comp: "openmpi",           name: "OPENMPI（MPI 运行时）",              installed: "{{ check_openmpi.stat.exists }}" }
+      - { comp: "nccl_tests",        name: "NCCL-TESTS（带宽测试）",             installed: "{{ check_nccl_tests.stat.exists }}" }
+      - { comp: "dcgm",              name: "DCGM（GPU 监控）",                    installed: "{{ '未安装' not in check_dcgm.stdout }}" }
+      - { comp: "container_toolkit", name: "NVIDIA CONTAINER TOOLKIT（容器 GPU）", installed: "{{ '未安装' not in check_container_toolkit.stdout }}" }
+
+- name: 设置组件安装统计
+  set_fact:
+    check_installed_count: "{{ check_summary | selectattr('installed', 'equalto', true) | list | length }}"
+    check_total_count: "{{ check_summary | length }}"
+
+- name: 输出组件安装状态总表
+  debug:
+    msg:
+      - "================ 组件安装状态总表 ================"
+      - "主机: {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
+      - "统计: 已安装 {{ check_installed_count }} / {{ check_total_count }}"
+      - "--------------------------------------------------"
+      - "{% for item in check_summary %}\
+           {{ item.comp }}: {{ '[已安装]' if item.installed else '[未安装]' }}\
+           {{ ',' if not loop.last else '' }}\
+         {% endfor %}"
+
 - name: 输出组件检测报告
   debug:
     msg:
@@ -184,4 +222,13 @@
       - "------------------------------------------------------"
       - "nvidia_peermem: {{ check_peermem.stdout }} (开机自动加载: {{ '已配置' if check_peermem_conf.stat.exists else '未配置' }})"
       - "PCI ACS: {{ check_acs.stdout }} (开机持久化: {{ check_acs_service.stdout if (check_acs_service.rc | default(1) == 0 and check_acs_service.stdout | trim | length > 0) else '未配置' }})"
+
+- name: 输出已安装组件汇总
+  debug:
+    msg:
+      - "======================================================"
+      - "已安装组件（{{ check_installed_count }} / {{ check_total_count }}）:"
+      - "{{ check_summary | selectattr('installed', 'equalto', true) | map(attribute='name') | list }}"
+      - "未安装组件（{{ check_total_count | int - check_installed_count | int }}）:"
+      - "{{ check_summary | selectattr('installed', 'equalto', false) | map(attribute='name') | list }}"
       - "======================================================"

@@ -6,7 +6,7 @@
 #       online（默认）：apt 源安装；package：安装 gpuenv_nccl_package 目录下的 deb 包
 #   - OpenMPI / nccl-tests 源码：对应离线包变量留空则在线下载，
 #     提供本地包（gpuenv_openmpi_src_package / gpuenv_nccl_tests_src_package）则用本地包
-# 版本基线（见 base_vesion.md）：NCCL 需与 CUDA 版本配套、OpenMPI 源码编译
+# 版本要求：NCCL 需与 CUDA 版本配套、OpenMPI 源码编译
 
 - name: 设置 CUDA 主次版本号（用于匹配 NCCL 包的 cuda 后缀，如 12.6）
   set_fact:
@@ -91,9 +91,9 @@
     - gpuenv_openmpi_src_package | length > 0
     - gpuenv_force or not openmpi_bin.stat.exists
 
-- name: 解压 OpenMPI 源码（到 /opt）
+- name: 解压 OpenMPI 源码（到构建目录）
   command: >
-    tar -xzf {{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz -C /opt
+    tar -xzf {{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz -C {{ gpuenv_build_dir }}
   args:
     creates: "{{ gpuenv_openmpi_src_dir }}"
   when: gpuenv_force or not openmpi_bin.stat.exists
@@ -162,16 +162,30 @@
     state: absent
   when: gpuenv_force or not nccl_tests_bin.stat.exists
 
-# 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/nccl-tests）
+# 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/build/nccl-tests）
+- name: 清理临时解压目录（nccl-tests）
+  file:
+    path: /tmp/nccl-tests-extract
+    state: absent
+
+- name: 确保构建目录父目录存在（nccl-tests）
+  file:
+    path: "{{ gpuenv_nccl_tests_dir | dirname }}"
+    state: directory
+    mode: '0755'
+
 - name: 解压 nccl-tests 源码到目标目录
   shell: |
-    rm -rf /tmp/nccl-tests-extract
     unzip -o {{ gpuenv_pkg_dir }}/nccl-tests-src.zip -d /tmp/nccl-tests-extract >/dev/null
-    mkdir -p {{ gpuenv_nccl_tests_dir | dirname }}
     mv /tmp/nccl-tests-extract/* {{ gpuenv_nccl_tests_dir }}
-    rm -rf /tmp/nccl-tests-extract
   args:
     creates: "{{ gpuenv_nccl_tests_dir }}"
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+- name: 清理临时解压目录（nccl-tests，收尾）
+  file:
+    path: /tmp/nccl-tests-extract
+    state: absent
   when: gpuenv_force or not nccl_tests_bin.stat.exists
 
 - name: 编译 nccl-tests（多机模式，使用源码编译的 OpenMPI）

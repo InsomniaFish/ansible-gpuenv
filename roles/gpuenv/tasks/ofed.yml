@@ -1,6 +1,6 @@
 ---
 # IB 网络驱动：MLNX OFED / RDMA 栈安装（必须在 GPU 驱动之前执行）
-# 基线（见 base_vesion.md）：MLNX OFED 24.10-1.1.4.0-LTS
+# MLNX OFED 离线安装（版本见 vars/gpuenv_repos.yml）
 # 启用方式：-e gpuenv_install_ofed=true
 # 安装模式（gpuenv_ofed_install_mode）：
 #   - online（默认，在线）：apt 安装 Ubuntu 原生 RDMA 栈（rdma-core 等），
@@ -28,6 +28,8 @@
   changed_when: false
   failed_when: false
   when: gpuenv_ofed_install_mode == 'online'
+  args:
+    warn: false
 
 - name: 在线安装 RDMA 栈（{{ gpuenv_ofed_native_packages | join(', ') }}）
   apt:

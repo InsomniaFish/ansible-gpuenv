@@ -1,6 +1,13 @@
 ---
 # 步骤 2：安装编译依赖包（对应手册：apt 安装编译工具链与内核头文件）
 
+- name: 等待 apt/dpkg 锁释放（避免 unattended-upgrades 等进程占用导致失败）
+  shell: |
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1        || fuser /var/lib/dpkg/lock >/dev/null 2>&1        || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+      sleep 5
+    done
+  changed_when: false
+
 - name: 安装编译依赖（build-essential / linux-headers / unzip / curl）
   apt:
     name:
@@ -10,6 +17,11 @@
       - curl
     state: present
     update_cache: yes
+    cache_valid_time: 3600
+  register: build_deps_apt
+  until: build_deps_apt is success
+  retries: 3
+  delay: 10
 
 - name: 验证 gcc 可用
   command: gcc --version

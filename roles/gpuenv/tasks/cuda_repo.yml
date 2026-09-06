@@ -21,6 +21,17 @@
 
 # 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/cuda-keyring.deb 安装包，不做删除
 
-- name: 刷新软件源缓存
+- name: 等待 apt/dpkg 锁释放（避免 unattended-upgrades 等进程占用导致失败）
+  shell: |
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1        || fuser /var/lib/dpkg/lock >/dev/null 2>&1        || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+      sleep 5
+    done
+  changed_when: false
+
+- name: 刷新软件源缓存（瞬时网络抖动自动重试）
   apt:
     update_cache: yes
+  register: cuda_repo_apt_update
+  until: cuda_repo_apt_update is success
+  retries: 4
+  delay: 15

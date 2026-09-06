@@ -1,0 +1,86 @@
+---
+#===============================================================================
+# 部署配置清单模板（deploy.yml.example）
+#
+# 作用：把"装哪些组件、什么模式、离线包在哪、版本多少"集中写在一个文件里，
+#       避免每次执行都拼一长串 -e 参数。
+#
+# 使用方法：
+#   1. 复制为实际清单：      cp vars/deploy.yml.example vars/deploy.yml
+#   2. 从下方预设场景中挑选一套，取消注释并按实际环境修改
+#   3. 执行部署（无需任何 -e 参数）：
+#        ansible-playbook -i inventory.ini site.yml
+#
+# 变量优先级（从低到高）：
+#   role defaults < vars/gpuenv_repos.yml < vars/deploy.yml < -e 命令行
+#   即：本文件可覆盖版本基线；命令行 -e 仍可临时覆盖本文件。
+#   本文件中未写的项，一律沿用默认值（默认不安装任何组件）。
+#
+# 组件开关一览（完整说明见 README「组件列表」）：
+#   gpuenv_install_ofed / driver / peermem / pci_acs / cuda /
+#   fabricmanager / gpu_burn / nccl / dcgm / container_toolkit
+#===============================================================================
+
+
+#===============================================================================
+# 场景 A：单机基础环境（在线安装驱动 + CUDA）
+#===============================================================================
+# gpuenv_install_driver: true
+# gpuenv_install_cuda: true
+# # 驱动装完自动重启（加载内核模块，生产验收建议开启）
+# gpuenv_reboot_after_driver: true
+
+
+#===============================================================================
+# 场景 B：多机训练全套（在线安装，IB/RoCE + GPUDirect + 通信测试）
+#===============================================================================
+# gpuenv_install_ofed: true              # IB 网络驱动（须先于驱动安装）
+# gpuenv_install_driver: true
+# gpuenv_install_peermem: true           # GPUDirect RDMA
+# gpuenv_install_pci_acs: true           # 关闭 PCI ACS
+# gpuenv_install_cuda: true
+# gpuenv_install_fabricmanager: true     # NVLink 多卡互联（版本自动跟随驱动）
+# gpuenv_install_nccl: true              # NCCL + OpenMPI + nccl-tests
+# gpuenv_install_dcgm: true              # GPU 诊断监控
+# gpuenv_reboot_after_driver: true
+
+
+#===============================================================================
+# 场景 C：全离线安装（本地安装包，路径按实际修改）
+#===============================================================================
+# gpuenv_install_driver: true
+# gpuenv_driver_install_mode: package
+# gpuenv_driver_package: /opt/packages/NVIDIA-Linux-x86_64-560.35.05.run
+#
+# gpuenv_install_cuda: true
+# gpuenv_cuda_install_mode: package
+# gpuenv_cuda_package: /opt/packages/cuda_12.6.2_560.35.03_linux.run
+#
+# gpuenv_install_ofed: true
+# gpuenv_ofed_install_mode: package
+# gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz
+#
+# gpuenv_install_nccl: true
+# gpuenv_nccl_install_mode: package
+# gpuenv_nccl_package: /opt/packages/nccl-debs            # 存放 libnccl2/libnccl-dev deb 的目录
+# gpuenv_openmpi_src_package: /opt/packages/openmpi-4.1.5.tar.gz
+# gpuenv_nccl_tests_src_package: /opt/packages/nccl-tests-master.zip
+
+
+#===============================================================================
+# 常用可选项（按需追加到上方任一场景）
+#===============================================================================
+# --- 版本覆盖（不写则用 vars/gpuenv_repos.yml 中的基线版本） ---
+# gpuenv_driver_version: "560.35.05"
+# gpuenv_cuda_version: "12.6.2"
+# gpuenv_nccl_version: "2.23.4"
+#
+# --- 其他组件 ---
+# gpuenv_install_gpu_burn: true            # GPU 压力测试
+# gpuenv_install_container_toolkit: true   # 容器内使用 GPU（会重启 docker）
+#
+# --- 行为开关 ---
+# gpuenv_force: false                      # 忽略已安装检测，强制重装
+#
+# --- 卸载配置（供 uninstall.yml 读取） ---
+# gpuenv_uninstall_components: core        # core / all / 逗号分隔列表（如 nccl,dcgm）

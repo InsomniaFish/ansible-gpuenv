@@ -1,7 +1,7 @@
 ---
 # nvidia_peermem：GPUDirect RDMA 支持（多机 NCCL 测试需开启）
 # 启用方式：-e gpuenv_install_peermem=true（配置型组件，无在线/离线之分）
-# 基线（见 base_vesion.md）：nvidia_peermem 开启
+# nvidia_peermem 开启（GPUDirect RDMA 支持）
 # 说明：依赖 NVIDIA 驱动已安装；Ubuntu 24.04+（内核>=6.8）使用 DMA_BUF，无需此模块
 # 参考：https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting.html
 

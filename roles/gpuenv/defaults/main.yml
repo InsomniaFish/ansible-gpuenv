@@ -3,7 +3,7 @@
 # GPUENV role 默认变量
 # 设计原则：
 #   1. 默认不安装任何组件：所有 gpuenv_install_* 开关默认 false，
-#      由用户通过 -e 参数或 vars/gpuenv_repos.yml 显式指定要安装的组件
+#      由用户在 vars/deploy.yml 配置清单或 -e 参数中显式指定要安装的组件
 #   2. 每个组件对应独立的任务 yaml，且均支持两种安装模式：
 #      gpuenv_<组件>_install_mode = online（在线）| package（离线本地包）
 #   3. 软件源 URL 与组件版本独立维护在 vars/gpuenv_repos.yml
@@ -23,6 +23,7 @@ gpuenv_install_dcgm: false              # DCGM 数据中心 GPU 管理器（硬�
 gpuenv_install_container_toolkit: false # nvidia-container-toolkit（容器内使用 GPU）
 
 # --- 行为开关 ---
+gpuenv_nccl_tests_ssh_trust: true        # nccl-tests 多机测试前置：配置主机间 SSH 免密互信（置 false 跳过）
 gpuenv_force: false                   # 是否忽略已安装检测，强制重装
 gpuenv_reboot_after_driver: false     # 驱动安装后是否自动重启（生产验收建议开启）
 
@@ -44,7 +45,7 @@ gpuenv_container_toolkit_install_mode: "online"
 gpuenv_driver_package: ""
 # CUDA run 安装包，官方归档页：https://developer.nvidia.com/cuda-toolkit-archive
 # 默认官方直链（12.6.2，捆绑驱动 560.35.03；其他版本需按归档页调整）
-gpuenv_cuda_package: "https://developer.download.nvidia.com/compute/cuda/12.6.2/local_installers/cuda_12.6.2_560.35.03_linux.run"
+gpuenv_cuda_package: "https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
 # fabricmanager deb 安装包（源中无对应版本时使用），例如：
 #   https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_<版本>-1_amd64.deb
 gpuenv_fm_package: ""
@@ -64,23 +65,23 @@ gpuenv_dcgm_package: ""
 # nvidia-container-toolkit deb 安装包（离线）：本地路径或 URL
 gpuenv_container_toolkit_package: ""
 
-# --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供，基线见 base_vesion.md） ---
+# --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供） ---
 gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
 gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
-gpuenv_driver_version: "560.35.05"
-gpuenv_cuda_version: "12.6.2"
+gpuenv_driver_version: "580.105.08"
+gpuenv_cuda_version: "13.0.2"
 gpuenv_fm_version: ""                 # 留空则与驱动版本一致
-gpuenv_nccl_version: "2.23.4"
+gpuenv_nccl_version: "2.28.9"
 gpuenv_nccl_tests_url: "https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
-gpuenv_openmpi_version: "4.1.5"
-gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.5.tar.gz"
+gpuenv_openmpi_version: "4.1.7"
+gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz"
 
-# --- MLNX OFED（基线见 base_vesion.md，官方下载页见下） ---
+# --- MLNX OFED（官方下载页见下） ---
 # 官方下载：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
 # 说明：NVIDIA 官方 OFED apt 仓库（linux.mellanox.com）实测无法通过 apt 拉取，
 #       故 online 模式安装 Ubuntu 原生 RDMA 栈（rdma-core 等，内核自带 mlx5 驱动）
-gpuenv_ofed_version: "24.10-1.1.4.0"
+gpuenv_ofed_version: "24.10-3.2.0"
 # online 模式安装的 RDMA 软件包（可按需增减）
 gpuenv_ofed_native_packages:
   - rdma-core
@@ -96,12 +97,14 @@ gpuenv_ofed_native_packages:
 gpuenv_base_dir: "/root/ansible-gpuenv"
 # 安装包存放目录（统一在 /opt 下，持久保留；/tmp 会被系统定期清理，不用于存放安装包）
 gpuenv_pkg_dir: "/opt/packages"
-# gpu-burn 源码与编译目录（统一在 /opt 下）
-gpuenv_gpu_burn_dir: "/opt/gpu-burn"
-# nccl-tests 源码与编译目录（统一在 /opt 下）
-gpuenv_nccl_tests_dir: "/opt/nccl-tests"
-# OpenMPI 源码目录（统一在 /opt 下；安装位置仍为 /usr/local/openmpi）
-gpuenv_openmpi_src_dir: "/opt/openmpi-{{ gpuenv_openmpi_version }}"
+# 构建目录（源码解压与编译统一在 /opt/build 下）
+gpuenv_build_dir: "/opt/build"
+# gpu-burn 源码与编译目录（位于构建目录下）
+gpuenv_gpu_burn_dir: "/opt/build/gpu-burn"
+# nccl-tests 源码与编译目录（位于构建目录下）
+gpuenv_nccl_tests_dir: "/opt/build/nccl-tests"
+# OpenMPI 源码目录（位于构建目录下；安装位置仍为 /usr/local/openmpi）
+gpuenv_openmpi_src_dir: "/opt/build/openmpi-{{ gpuenv_openmpi_version }}"
 # CUDA 环境变量文件（系统固定位置，必须为绝对路径）
 gpuenv_cuda_profile: "/etc/profile.d/cuda.sh"
 

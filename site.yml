@@ -2,11 +2,13 @@
 #===============================================================================
 # GPU 环境部署 playbook
 # 设计原则：
-#   1. 默认不安装任何组件，全部由用户通过 -e gpuenv_install_<组件>=true 指定
-#   2. 每个组件对应独立任务文件，均支持 online（在线）/ package（离线）两种模式
-#   3. 软件源与版本配置独立维护在 vars/gpuenv_repos.yml
+#   1. 默认读取 vars/deploy.yml 配置清单：装哪些组件、什么模式、离线包路径、
+#      版本覆盖均写在该文件中（默认全注释 = 不安装任何组件）
+#   2. 命令行 -e 参数仅用于临时覆盖（优先级高于配置清单，仅本次生效）
+#   3. 每个组件对应独立任务文件，均支持 online（在线）/ package（离线）两种模式
+#   4. 软件源与版本配置独立维护在 vars/gpuenv_repos.yml
 #
-# 可选组件（开关变量）：
+# 可选组件（开关变量，写于 vars/deploy.yml）：
 #   gpuenv_install_ofed              MLNX OFED / RDMA 栈（须先于驱动安装）
 #   gpuenv_install_driver            NVIDIA GPU 驱动
 #   gpuenv_install_peermem           nvidia_peermem（GPUDirect RDMA，依赖驱动）
@@ -18,28 +20,23 @@
 #   gpuenv_install_dcgm              DCGM 监控
 #   gpuenv_install_container_toolkit nvidia-container-toolkit
 #
-# 安装模式（每个组件均可指定）：
-#   -e gpuenv_<组件>_install_mode=online    在线安装（默认）
-#   -e gpuenv_<组件>_install_mode=package   离线安装（另需 -e gpuenv_<组件>_package=<本地包>）
+# 安装模式（每个组件均可指定，写于 vars/deploy.yml）：
+#   gpuenv_<组件>_install_mode: online     在线安装（默认）
+#   gpuenv_<组件>_install_mode: package    离线安装（另需 gpuenv_<组件>_package=<本地包>）
 #
 # 用法示例：
-#   # 在线安装驱动 + CUDA（指定版本）
-#   ansible-playbook -i inventory.ini site.yml \
-#     -e gpuenv_install_driver=true -e gpuenv_install_cuda=true \
-#     -e gpuenv_driver_version=560.35.05 -e gpuenv_cuda_version=12.6.2
+#   # 标准流程：编辑配置清单后一条命令部署（无需任何 -e 参数）
+#   vim vars/deploy.yml
+#   ansible-playbook -i inventory.ini site.yml
 #
-#   # 离线安装驱动 + CUDA（本地 .run 安装包）
-#   ansible-playbook -i inventory.ini site.yml \
-#     -e gpuenv_install_driver=true -e gpuenv_driver_install_mode=package \
-#     -e gpuenv_driver_package=/path/to/NVIDIA-Linux-x86_64-560.35.05.run \
-#     -e gpuenv_install_cuda=true -e gpuenv_cuda_install_mode=package \
-#     -e gpuenv_cuda_package=/path/to/cuda_12.6.2_560.35.03_linux.run
+#   # 临时覆盖（优先级高于 deploy.yml，仅本次生效）
+#   ansible-playbook -i inventory.ini site.yml -e gpuenv_driver_version=560.35.05
 #
-#   # 仅执行某个组件（tag）
-#   ansible-playbook -i inventory.ini site.yml -e gpuenv_install_driver=true --tags driver
+#   # 仅执行某个组件（tag，开关已在 deploy.yml 中启用时）
+#   ansible-playbook -i inventory.ini site.yml --tags driver
 #
 #   # 强制重装
-#   ansible-playbook -i inventory.ini site.yml -e gpuenv_install_cuda=true -e gpuenv_force=true
+#   ansible-playbook -i inventory.ini site.yml -e gpuenv_force=true
 #===============================================================================
 - name: 部署 GPU 环境（组件按需指定，支持在线/离线安装）
   hosts: gpu_nodes
@@ -47,5 +44,6 @@
   gather_facts: yes
   vars_files:
     - vars/gpuenv_repos.yml
+    - vars/deploy.yml          # 部署配置清单（组件/模式/包路径，默认全注释=不装任何组件）
   roles:
-    - GPUENV
+    - gpuenv

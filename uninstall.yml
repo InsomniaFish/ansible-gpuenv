@@ -5,11 +5,16 @@
 #   ansible-playbook -i inventory.ini uninstall.yml                 # 卸载所有节点
 #   ansible-playbook -i inventory.ini uninstall.yml --limit node01  # 仅卸载指定节点
 #
+# 卸载范围（默认 core）可在 vars/deploy.yml 中配置 gpuenv_uninstall_components，
+# 或用 -e gpuenv_uninstall_components=all / nccl,dcgm 临时指定
+#
 # 注意：卸载为破坏性操作，建议先用 check.yml 确认现状，并用 --limit 指定节点执行
 #===============================================================================
 - name: 卸载 GPU 环境组件
   hosts: gpu_nodes
   become: yes
   gather_facts: yes
+  vars_files:
+    - vars/deploy.yml          # 部署配置清单（读取 gpuenv_uninstall_components 等）
   roles:
-    - GPUENV_UNINSTALL
+    - gpuenv_uninstall

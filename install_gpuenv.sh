@@ -46,9 +46,9 @@ CUDA_KEYRING_DEB="cuda-keyring_1.1-1_all.deb"
 #     https://github.com/wilicc/gpu-burn/archive/refs/tags/v1.1.zip
 GPU_BURN_URL="https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 
-# --- 版本配置（默认以 base_vesion.md 版本基线为准） ---
-DRIVER_VERSION="560.35.05"      # NVIDIA 驱动版本（基线：560.35.05，560.35.03 也可）
-CUDA_VERSION="12.6.2"           # CUDA Toolkit 版本（基线：12.6，建议 12.6.2）
+# --- 版本配置（默认与 vars/deploy.yml 部署清单保持一致） ---
+DRIVER_VERSION="580.105.08"     # NVIDIA 驱动版本
+CUDA_VERSION="13.0.2"           # CUDA Toolkit 版本
 FM_VERSION=""                   # fabricmanager 版本，留空则与驱动一致
 SKIP_GPU_BURN=false             # 是否跳过 gpu-burn 下载编译
 FORCE=false                     # 是否忽略已安装检测，强制重装

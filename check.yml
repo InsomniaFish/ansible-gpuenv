@@ -10,4 +10,4 @@
   become: yes
   gather_facts: yes
   roles:
-    - GPUENV_CHECK
+    - gpuenv_check

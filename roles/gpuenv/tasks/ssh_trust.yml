@@ -1,0 +1,99 @@
+---
+#===============================================================================
+# 主机间 SSH 免密互信（nccl-tests 多机测试前置）
+# 开关：gpuenv_nccl_tests_ssh_trust（默认 true）
+# 逻辑（参考 ssh-setup.sh，改为在目标节点上批量执行）：
+#   1. 每个节点生成自己的 SSH 密钥对（如不存在）
+#   2. 收集所有节点的公钥，汇总为一个列表
+#   3. 每个节点把全部公钥追加到自己的 authorized_keys（幂等，去重）
+#   4. 互相写入 known_hosts（避免首次连接交互确认）
+# 说明：多机 mpirun 需要主节点可免密 SSH 到其他节点，
+#       此处配置为全互信（任意节点之间免密），最稳妥
+#===============================================================================
+
+# --- 1. 每个节点生成 SSH 密钥对 ---
+- name: 确保 ~/.ssh 目录存在
+  file:
+    path: "~{{ ansible_user | default('root') }}/.ssh"
+    state: directory
+    mode: '0700'
+  tags: [gpuenv, ssh_trust]
+
+- name: 生成 SSH 密钥对（如不存在）
+  shell: |
+    key=~/.ssh/id_rsa
+    if [ ! -f "$key" ]; then
+      ssh-keygen -t rsa -b 4096 -f "$key" -N "" -q
+      echo "generated"
+    fi
+  register: ssh_trust_keygen
+  changed_when: ssh_trust_keygen.stdout | trim == 'generated'
+
+# --- 2. 读取本节点公钥 ---
+  tags: [gpuenv, ssh_trust]
+- name: 读取本节点公钥
+  slurp:
+    src: "~{{ ansible_user | default('root') }}/.ssh/id_rsa.pub"
+  register: ssh_trust_own_pubkey
+  tags: [gpuenv, ssh_trust]
+
+- name: 设置本节点公钥事实
+  set_fact:
+    ssh_trust_pubkey: "{{ ssh_trust_own_pubkey['content'] | b64decode | trim }}"
+
+# --- 3. 汇总所有节点公钥（每台节点都执行，无需 run_once） ---
+  tags: [gpuenv, ssh_trust]
+- name: 收集所有节点公钥与地址信息
+  set_fact:
+    ssh_trust_all: "{{ ansible_play_hosts | map('extract', hostvars, 'ssh_trust_pubkey') | list }}"
+
+# --- 4. 每个节点写入全部公钥（幂等：逐条检查不存在才追加） ---
+  tags: [gpuenv, ssh_trust]
+- name: 确保 authorized_keys 文件存在（权限正确）
+  file:
+    path: "~{{ ansible_user | default('root') }}/.ssh/authorized_keys"
+    state: touch
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve
+  tags: [gpuenv, ssh_trust]
+
+- name: 分发全部节点公钥到 authorized_keys（幂等）
+  shell: |
+    changed=0
+    while IFS= read -r key; do
+      [ -z "$key" ] && continue
+      grep -qxF "$key" ~/.ssh/authorized_keys || { printf '%s\n' "$key" >> ~/.ssh/authorized_keys; changed=1; }
+    done
+    [ "$changed" = "1" ] && echo updated || true
+  args:
+    stdin: "{{ ssh_trust_all | join('\n') }}"
+  register: ssh_trust_distribute
+  changed_when: ssh_trust_distribute.stdout | trim == 'updated'
+  tags: [gpuenv, ssh_trust]
+
+- name: 采集所有节点地址（IP + 主机名）
+  set_fact:
+    ssh_trust_addr: "{{ ansible_play_hosts | map('extract', hostvars, 'ansible_host') | list }}"
+  tags: [gpuenv, ssh_trust]
+
+- name: 记录其他节点地址到 known_hosts（幂等）
+  shell: |
+    changed=0
+    for addr in {{ ssh_trust_addr | join(' ') }}; do
+      [ "$addr" = "{{ ansible_host }}" ] && continue
+      if ! ssh-keygen -F "$addr" >/dev/null 2>&1; then
+        ssh-keyscan -T 5 -t rsa,ecdsa "$addr" >> ~/.ssh/known_hosts 2>/dev/null && changed=1
+      fi
+    done
+    [ "$changed" = "1" ] && echo updated || true
+  register: ssh_trust_known_hosts
+  changed_when: ssh_trust_known_hosts.stdout | trim == 'updated'
+  tags: [gpuenv, ssh_trust]
+
+- name: SSH 免密互信配置完成
+  debug:
+    msg: >-
+      SSH 免密互信已配置（{{ ssh_trust_all | length }} 个节点全互信）。
+      可在任一节点验证: ssh {{ ansible_host }} 'hostname'
+  tags: [gpuenv, ssh_trust]

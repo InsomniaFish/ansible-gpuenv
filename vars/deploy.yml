@@ -1,0 +1,73 @@
+---
+#===============================================================================
+# 部署配置清单（deploy.yml）
+#
+# 作用：把"装哪些组件、什么模式、离线包在哪、版本多少"集中写在本文件，
+#       执行时无需再拼一长串 -e 参数：
+#         ansible-playbook -i inventory.ini site.yml
+#
+# 变量优先级（从低到高）：
+#   role defaults < vars/gpuenv_repos.yml < vars/deploy.yml < -e 命令行
+#   即：本文件可覆盖版本基线；命令行 -e 仍可临时覆盖本文件。
+#===============================================================================
+
+# --- 要安装的组件 ---
+gpuenv_install_ofed: true              # MLNX OFED / RDMA 栈（须先于驱动安装）
+gpuenv_install_driver: true            # NVIDIA GPU 驱动（在线）
+gpuenv_install_cuda: true              # CUDA Toolkit（离线 .run 包）
+gpuenv_install_fabricmanager: true     # nvidia-fabricmanager（离线 deb，版本跟随驱动）
+gpuenv_install_nccl: true              # NCCL(在线) + OpenMPI(在线源码) + nccl-tests(离线)
+# gpuenv_install_peermem: true         # GPUDirect RDMA（依赖驱动）
+# gpuenv_install_pci_acs: true         # 关闭 PCI ACS（多机通信要求）
+gpuenv_install_gpu_burn: true          # gpu-burn 压力测试（离线源码 zip）
+# gpuenv_install_dcgm: true           # DCGM 诊断监控
+# gpuenv_install_container_toolkit: true # nvidia-container-toolkit（会重启 docker）
+
+# --- 版本 ---
+gpuenv_driver_version: "580.105.08"
+gpuenv_fm_version: ""                  # 留空则与驱动版本一致（580.105.08）
+gpuenv_cuda_version: "13.0.2"          # run 包：cuda_13.0.2_580.95.05_linux.run
+gpuenv_nccl_version: "2.28.9"          # 源中匹配 2.28.9-1+cuda13.0
+gpuenv_ofed_version: "24.10-3.2.0"    # online 模式实际安装 rdma-core 原生 RDMA 栈
+gpuenv_openmpi_version: "4.1.7"
+gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz"
+
+# NCCL 离线 deb 包备用获取页（按 CUDA 版本选择）：https://developer.nvidia.com/nccl/nccl-download
+
+# --- CUDA 离线安装（本地 .run 包） ---
+gpuenv_cuda_install_mode: package
+gpuenv_cuda_package: /opt/packages/cuda_13.0.2_580.95.05_linux.run
+
+# --- fabricmanager 离线安装（本地 deb，版本 580.105.08-1 与驱动一致） ---
+gpuenv_fm_install_mode: package
+gpuenv_fm_package: /opt/packages/nvidia-fabricmanager.deb
+
+# --- nccl-tests 离线安装（GitHub 源码 zip，内含 nccl-tests-2.17.6） ---
+gpuenv_nccl_tests_src_package: /opt/packages/nccl-tests-src.zip
+
+# --- gpu-burn 离线安装（源码 zip，内含 gpu-burn-master） ---
+gpuenv_gpu_burn_install_mode: package
+gpuenv_gpu_burn_package: /opt/packages/gpu-burn-src.zip
+
+# --- 其余组件均为 online 模式（默认值，无需配置） ---
+# gpuenv_driver_install_mode: online
+# gpuenv_nccl_install_mode: online        # NCCL 库走 apt 源
+# gpuenv_openmpi_src_package: ""           # 留空 = 在线下载 openmpi-4.1.7.tar.gz
+# gpuenv_ofed_install_mode: online
+
+# --- 行为开关 ---
+# gpuenv_force: false                    # 忽略已安装检测，强制重装
+gpuenv_reboot_after_driver: false       # 驱动安装后自动重启（加载内核模块），关闭后需手动重启
+
+# --- 卸载配置（供 uninstall.yml 读取） ---
+# gpuenv_uninstall_components: core      # 卸载范围，取值如下：
+#   core（默认）: driver,cuda,fabricmanager,gpu_burn
+#   all         : core + nccl,openmpi,nccl_tests,dcgm,container_toolkit,ofed,peermem,pci_acs
+#   逗号分隔列表: 仅卸载指定组件（可任意组合），例如：
+#     gpuenv_uninstall_components: nccl,dcgm
+#     gpuenv_uninstall_components: driver,cuda,fabricmanager
+#     gpuenv_uninstall_components: openmpi,nccl_tests
+# 可用组件名：
+#   核心:  driver cuda fabricmanager gpu_burn
+#   可选:  nccl openmpi nccl_tests dcgm container_toolkit ofed peermem pci_acs
+# 另可通过 -e gpuenv_uninstall_components=<值> 临时覆盖

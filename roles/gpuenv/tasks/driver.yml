@@ -154,7 +154,18 @@
     - driver_run_verify.stdout | trim | length == 0
 
 #=============================== 公共：重启（可选） ==============================
-- name: 驱动安装后重启服务器（可选）
+- name: 驱动安装后重启远程节点（可选）
   reboot:
     reboot_timeout: 600
-  when: gpuenv_reboot_after_driver
+  when:
+    - gpuenv_reboot_after_driver
+    - ansible_connection is defined and ansible_connection != 'local'
+
+- name: 提示控制节点需手动重启（本地连接不自动重启）
+  debug:
+    msg: >-
+      {{ inventory_hostname }} 为控制节点（local 连接），已跳过自动重启。
+      驱动已安装，请稍后手动执行 reboot 加载内核模块。
+  when:
+    - gpuenv_reboot_after_driver
+    - ansible_connection is defined and ansible_connection == 'local'
