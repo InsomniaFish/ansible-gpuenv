@@ -6,18 +6,23 @@
 #   - package：使用本地源码包（-e gpuenv_gpu_burn_package=<gpu-burn zip 包路径>）
 
 - name: 检查 gpu_burn 是否已编译
+
   stat:
     path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
   register: gpu_burn_bin
+  tags: [gpuenv, gpu_burn]
 
 - name: gpu_burn 已编译，跳过
+
   debug:
     msg: "gpu_burn 已编译 ({{ gpuenv_gpu_burn_dir }}/gpu_burn)，跳过"
   when: >
     not gpuenv_force
     and gpu_burn_bin.stat.exists
+  tags: [gpuenv, gpu_burn]
 
 - name: 确保项目基准目录存在
+
   file:
     path: "{{ gpuenv_base_dir }}"
     state: directory
@@ -25,7 +30,9 @@
   when: gpuenv_force or not gpu_burn_bin.stat.exists
 
 #=============================== online 在线模式 ================================
+  tags: [gpuenv, gpu_burn]
 - name: 下载 gpu-burn 源码（online 模式）
+
   get_url:
     url: "{{ gpuenv_gpu_burn_url }}"
     dest: "{{ gpuenv_pkg_dir }}/gpu-burn-src.zip"
@@ -35,7 +42,9 @@
     - gpuenv_force or not gpu_burn_bin.stat.exists
 
 #=============================== package 离线模式 ================================
+  tags: [gpuenv, gpu_burn]
 - name: package 模式校验源码包参数
+
   fail:
     msg: >-
       gpuenv_gpu_burn_install_mode=package 但未提供源码包，请通过
@@ -43,8 +52,10 @@
   when:
     - gpuenv_gpu_burn_install_mode == 'package'
     - gpuenv_gpu_burn_package | length == 0
+  tags: [gpuenv, gpu_burn]
 
 - name: 拷贝本地 gpu-burn 源码包到安装包目录（package 模式）
+
   copy:
     src: "{{ gpuenv_gpu_burn_package }}"
     dest: "{{ gpuenv_pkg_dir }}/gpu-burn-src.zip"
@@ -54,39 +65,67 @@
     - gpuenv_force or not gpu_burn_bin.stat.exists
 
 #=============================== 公共：解压编译 ===================================
+  tags: [gpuenv, gpu_burn]
 - name: 清理旧源码目录
+
   file:
     path: "{{ gpuenv_gpu_burn_dir }}"
     state: absent
   when: gpuenv_force or not gpu_burn_bin.stat.exists
 
 # 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/build/gpu-burn）
+  tags: [gpuenv, gpu_burn]
 - name: 清理临时解压目录（gpu-burn）
+
   file:
     path: /tmp/gpu-burn-extract
     state: absent
+  tags: [gpuenv, gpu_burn]
 
 - name: 确保构建目录父目录存在（gpu-burn）
+
   file:
     path: "{{ gpuenv_gpu_burn_dir | dirname }}"
     state: directory
     mode: '0755'
+  tags: [gpuenv, gpu_burn]
 
-- name: 解压 gpu-burn 源码到目标目录
+# 解压到临时目录保留完整结构（zip 内含 win/ 等子目录，平铺会互相覆盖），
+# 再将顶层目录移动为固定名（与 zip 内顶层目录名解耦）
+- name: 确保 gpu-burn 解压临时目录存在
+  file:
+    path: "{{ gpuenv_build_dir }}/gpu-burn-extract"
+    state: directory
+    mode: '0755'
+  when: gpuenv_force or not gpu_burn_bin.stat.exists
+  tags: [gpuenv, gpu_burn]
+
+- name: 解压 gpu-burn 源码到临时目录（保留目录结构）
+  unarchive:
+    src: "{{ gpuenv_pkg_dir }}/gpu-burn-src.zip"
+    dest: "{{ gpuenv_build_dir }}/gpu-burn-extract"
+    remote_src: yes
+  when: gpuenv_force or not gpu_burn_bin.stat.exists
+  tags: [gpuenv, gpu_burn]
+
+- name: 移动 gpu-burn 源码到目标目录
   shell: |
-    unzip -o {{ gpuenv_pkg_dir }}/gpu-burn-src.zip -d /tmp/gpu-burn-extract >/dev/null
-    mv /tmp/gpu-burn-extract/* {{ gpuenv_gpu_burn_dir }}
+    src_dir=$(ls -d {{ gpuenv_build_dir }}/gpu-burn-extract/* | head -n 1)
+    mv "$src_dir" {{ gpuenv_gpu_burn_dir }}
   args:
     creates: "{{ gpuenv_gpu_burn_dir }}"
   when: gpuenv_force or not gpu_burn_bin.stat.exists
+  tags: [gpuenv, gpu_burn]
 
-- name: 清理临时解压目录（gpu-burn，收尾）
+- name: 清理 gpu-burn 解压临时目录
   file:
-    path: /tmp/gpu-burn-extract
+    path: "{{ gpuenv_build_dir }}/gpu-burn-extract"
     state: absent
   when: gpuenv_force or not gpu_burn_bin.stat.exists
+  tags: [gpuenv, gpu_burn]
 
 - name: 编译 gpu-burn
+
   command: make
   args:
     chdir: "{{ gpuenv_gpu_burn_dir }}"
@@ -94,17 +133,24 @@
   when: gpuenv_force or not gpu_burn_bin.stat.exists
 
 # 注意：编译完成后保留 {{ gpuenv_pkg_dir }}/gpu-burn-src.zip 源码包，不做删除
+  tags: [gpuenv, gpu_burn]
 
 - name: 验证 gpu_burn 可执行文件
+
   stat:
     path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
   register: gpu_burn_final
+  tags: [gpuenv, gpu_burn]
 
 - name: gpu_burn 编译失败时报错
+
   fail:
     msg: "gpu_burn 编译失败，请检查编译日志"
   when: not gpu_burn_final.stat.exists
+  tags: [gpuenv, gpu_burn]
 
 - name: gpu_burn 编译成功
+
   debug:
     msg: "gpu_burn 编译成功: {{ gpuenv_gpu_burn_dir }}/gpu_burn"
+  tags: [gpuenv, gpu_burn]
