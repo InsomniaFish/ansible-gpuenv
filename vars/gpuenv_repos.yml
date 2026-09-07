@@ -24,7 +24,7 @@ gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
 # gpu-burn 源码下载地址（online 模式）
 #   - 指定版本：将 master 改为对应 tag，例如
 #     https://github.com/wilicc/gpu-burn/archive/refs/tags/v1.1.zip
-gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
+gpuenv_gpu_burn_url: "https://ghproxy.net/https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 
 # --- 版本配置（默认基线，与 vars/deploy.yml 当前部署版本一致） ---
 gpuenv_driver_version: "580.105.08"   # NVIDIA 驱动版本
@@ -42,19 +42,19 @@ gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/l
 # NCCL 官方下载页（离线 deb 包备用获取渠道，按 CUDA 版本选择对应包）：
 #   https://developer.nvidia.com/nccl/nccl-download
 #   官方 deb 直链格式（ ubuntu2204 / x86_64，可能重定向到国内镜像）：
-#   https://developer.download.nvidia.com/compute/nccl/<版本>/ubuntu2204/x86_64/libnccl2_<版本>-1+cuda<系列>_amd64.deb
+#   注意：实际直链位于 cuda 仓库目录（非 nccl 专用目录），见下
 gpuenv_nccl_download_page: "https://developer.nvidia.com/nccl/nccl-download"
 
 # nccl-tests 源码下载地址（online 模式，多卡带宽测试）
 #   - 指定版本：将 master 改为对应 tag，例如 refs/tags/v2.13.1.zip
-gpuenv_nccl_tests_url: "https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
+gpuenv_nccl_tests_url: "https://ghproxy.net/https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
 
 # OpenMPI 源码下载地址（需源码编译安装）
 # 官方下载页：https://www.open-mpi.org/software/ompi/v4.1/
 gpuenv_openmpi_version: "4.1.7"
-gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz"
+gpuenv_openmpi_url: "https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.7.tar.gz"
 # 备用直链（已验证可用，切换版本时替换版本号即可）：
-#   4.1.5：https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.5.tar.gz
+#   4.1.5：https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.5.tar.gz
 # 国内镜像备选（需自行验证可用性）：
 #   https://mirrors.aliyun.com/openmpi/ 或华为云/清华开源镜像站搜索 openmpi
 

@@ -100,12 +100,41 @@
     - gpuenv_fm_package is not match('^https?://')
   tags: [gpuenv, fabricmanager]
 
-- name: 安装 fabricmanager（package 模式，本地 deb 包）
+- name: 安装 fabricmanager（package 模式，本地 deb 包，dpkg 方式）
   apt:
     deb: "{{ gpuenv_pkg_dir }}/nvidia-fabricmanager.deb"
   when:
     - gpuenv_fm_install_mode == 'package'
     - gpuenv_fm_need_install
+  tags: [gpuenv, fabricmanager]
+
+- name: 验证 fabricmanager 安装版本与驱动匹配（package 模式，dpkg 后校验）
+  shell: |
+    ver=$(dpkg-query -W -f='${Version}' {{ gpuenv_fm_pkg }} 2>/dev/null)
+    echo "$ver"
+  register: fm_pkg_installed_ver
+  changed_when: false
+  when: gpuenv_fm_install_mode == 'package'
+  tags: [gpuenv, fabricmanager]
+
+- name: fabricmanager 版本与驱动不匹配时报错（package 模式）
+  fail:
+    msg: >-
+      fabricmanager 安装版本 {{ fm_pkg_installed_ver.stdout | trim }} 与驱动版本
+      {{ gpuenv_fm_target }} 不匹配（fabricmanager 版本必须与驱动完全一致）。
+      请下载对应版本 deb：https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_{{ gpuenv_fm_target }}-1ubuntu1_amd64.deb
+      并更新 gpuenv_fm_package 指向的安装包。
+  when:
+    - gpuenv_fm_install_mode == 'package'
+    - gpuenv_fm_target not in (fm_pkg_installed_ver.stdout | trim)
+  tags: [gpuenv, fabricmanager]
+
+- name: fabricmanager 版本匹配确认（package 模式）
+  debug:
+    msg: "fabricmanager 已安装 {{ fm_pkg_installed_ver.stdout | trim }}，与驱动版本 {{ gpuenv_fm_target }} 匹配"
+  when:
+    - gpuenv_fm_install_mode == 'package'
+    - gpuenv_fm_target in (fm_pkg_installed_ver.stdout | trim)
   tags: [gpuenv, fabricmanager]
 
 # 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/nvidia-fabricmanager.deb 安装包，不做删除
