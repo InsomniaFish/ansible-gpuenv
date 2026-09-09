@@ -9,6 +9,7 @@
   set_fact:
     gpuenv_cuda_pkg: "cuda-toolkit-{{ gpuenv_cuda_version.split('.')[:2] | join('-') }}"
     gpuenv_cuda_series: "{{ gpuenv_cuda_version.split('.')[:2] | join('.') }}"
+  tags: [gpuenv, cuda]
 
 #=============================== online 在线模式 ================================
 - name: 检查 CUDA Toolkit 是否已安装（仅完全安装状态 ii 视为已安装）
@@ -19,11 +20,13 @@
   changed_when: false
   failed_when: false
   when: gpuenv_cuda_install_mode == 'online'
+  tags: [gpuenv, cuda]
 
 - name: 设置已安装 CUDA 版本事实（online 模式）
   set_fact:
     gpuenv_cuda_installed_ver: "{{ cuda_installed.stdout | trim }}"
   when: gpuenv_cuda_install_mode == 'online'
+  tags: [gpuenv, cuda]
 
 - name: 校验源中存在目标 CUDA 包
   shell: apt-cache show {{ gpuenv_cuda_pkg }}
@@ -31,6 +34,7 @@
   changed_when: false
   failed_when: false
   when: gpuenv_cuda_install_mode == 'online'
+  tags: [gpuenv, cuda]
 
 - name: CUDA 包不存在时报错
   fail:
@@ -38,6 +42,7 @@
   when:
     - gpuenv_cuda_install_mode == 'online'
     - cuda_pkg_check.rc != 0
+  tags: [gpuenv, cuda]
 
 - name: 查找源中与目标版本匹配的完整版本号
   shell: >
@@ -47,6 +52,7 @@
   register: cuda_repo_ver
   changed_when: false
   when: gpuenv_cuda_install_mode == 'online'
+  tags: [gpuenv, cuda]
 
 - name: CUDA 版本不存在时报错
   fail:
@@ -54,6 +60,7 @@
   when:
     - gpuenv_cuda_install_mode == 'online'
     - cuda_repo_ver.stdout | trim | length == 0
+  tags: [gpuenv, cuda]
 
 - name: 安装 CUDA Toolkit（online 模式，锁定目标版本）
   apt:
@@ -65,6 +72,7 @@
       gpuenv_force
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
+  tags: [gpuenv, cuda]
 
 - name: CUDA 已安装且版本一致，跳过（online 模式）
   debug:
@@ -74,6 +82,7 @@
     - not gpuenv_force
     - gpuenv_cuda_installed_ver != ''
     - gpuenv_cuda_version in gpuenv_cuda_installed_ver
+  tags: [gpuenv, cuda]
 
 #=============================== package 离线模式 ================================
 # 使用官方 run 安装包，--silent --toolkit 仅安装 Toolkit（不装驱动）
@@ -86,6 +95,7 @@
   when:
     - gpuenv_cuda_install_mode == 'package'
     - gpuenv_cuda_package | length == 0
+  tags: [gpuenv, cuda]
 
 - name: 检查 CUDA Toolkit 是否已安装（run 方式，读取 version.json）
   shell: |
@@ -98,11 +108,13 @@
   failed_when: false
   check_mode: no
   when: gpuenv_cuda_install_mode == 'package'
+  tags: [gpuenv, cuda]
 
 - name: 设置已安装 CUDA 版本事实（package 模式）
   set_fact:
     gpuenv_cuda_installed_ver: "{{ cuda_run_installed.stdout | trim }}"
   when: gpuenv_cuda_install_mode == 'package'
+  tags: [gpuenv, cuda]
 
 - name: CUDA 已安装且版本一致，跳过（package 模式）
   debug:
@@ -112,6 +124,7 @@
     - not gpuenv_force
     - gpuenv_cuda_installed_ver != ''
     - gpuenv_cuda_version in gpuenv_cuda_installed_ver
+  tags: [gpuenv, cuda]
 
 - name: 下载 CUDA run 安装包（URL）
   get_url:
@@ -125,6 +138,7 @@
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
     - gpuenv_cuda_package is match('^https?://')
+  tags: [gpuenv, cuda]
 
 - name: 拷贝本地 CUDA run 安装包到安装包目录
   copy:
@@ -138,6 +152,7 @@
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
     - gpuenv_cuda_package is not match('^https?://')
+  tags: [gpuenv, cuda]
 
 - name: 执行 CUDA run 安装（仅 Toolkit，不含驱动，耗时较长）
   command: >
@@ -151,6 +166,7 @@
       gpuenv_force
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
+  tags: [gpuenv, cuda]
 
 # 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/cuda_installer.run 安装包，不做删除
 
@@ -168,6 +184,7 @@
       gpuenv_force
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
+  tags: [gpuenv, cuda]
 
 - name: CUDA run 安装失败时报错
   fail:
@@ -179,6 +196,7 @@
       or gpuenv_cuda_installed_ver == ''
       or gpuenv_cuda_version not in gpuenv_cuda_installed_ver
     - cuda_run_verify.stdout | trim | length == 0
+  tags: [gpuenv, cuda]
 
 #=============================== 公共：环境变量 ===================================
 - name: 配置 CUDA 环境变量
@@ -186,12 +204,15 @@
     src: cuda.sh.j2
     dest: "{{ gpuenv_cuda_profile }}"
     mode: '0644'
+  tags: [gpuenv, cuda]
 
 - name: 验证 nvcc 可用
   command: /usr/local/cuda/bin/nvcc -V
   register: nvcc_check
   changed_when: false
+  tags: [gpuenv, cuda]
 
 - name: 显示 nvcc 版本
   debug:
     msg: "{{ nvcc_check.stdout_lines[-2:] }}"
+  tags: [gpuenv, cuda]

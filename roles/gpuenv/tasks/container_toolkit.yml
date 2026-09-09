@@ -11,6 +11,7 @@
     name: nvidia-container-toolkit
     state: present
   when: gpuenv_container_toolkit_install_mode == 'online'
+  tags: [gpuenv, container_toolkit]
 
 #=============================== package 离线模式 ================================
 - name: package 模式校验安装包参数
@@ -21,6 +22,7 @@
   when:
     - gpuenv_container_toolkit_install_mode == 'package'
     - gpuenv_container_toolkit_package | length == 0
+  tags: [gpuenv, container_toolkit]
 
 - name: 下载 container-toolkit deb 包（URL）
   get_url:
@@ -30,6 +32,7 @@
   when:
     - gpuenv_container_toolkit_install_mode == 'package'
     - gpuenv_container_toolkit_package is match('^https?://')
+  tags: [gpuenv, container_toolkit]
 
 - name: 拷贝本地 container-toolkit deb 包到安装包目录
   copy:
@@ -39,11 +42,13 @@
   when:
     - gpuenv_container_toolkit_install_mode == 'package'
     - gpuenv_container_toolkit_package is not match('^https?://')
+  tags: [gpuenv, container_toolkit]
 
 - name: 安装 container-toolkit（package 模式，本地 deb 包）
   apt:
     deb: "{{ gpuenv_pkg_dir }}/nvidia-container-toolkit.deb"
   when: gpuenv_container_toolkit_install_mode == 'package'
+  tags: [gpuenv, container_toolkit]
 
 # 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/nvidia-container-toolkit.deb 安装包，不做删除
 
@@ -53,21 +58,25 @@
   register: docker_check
   changed_when: false
   failed_when: false
+  tags: [gpuenv, container_toolkit]
 
 - name: 配置 docker 使用 nvidia 运行时
   command: nvidia-ctk runtime configure --runtime=docker
   register: nvidia_ctk_configure
   changed_when: "'Successfully configured' in nvidia_ctk_configure.stdout or 'configured' in nvidia_ctk_configure.stdout"
   when: docker_check.rc == 0
+  tags: [gpuenv, container_toolkit]
 
 - name: 重启 docker 使 nvidia 运行时生效
   systemd:
     name: docker
     state: restarted
   when: docker_check.rc == 0 and nvidia_ctk_configure is changed
+  tags: [gpuenv, container_toolkit]
 
 - name: 容器支持配置结果提示
   debug:
     msg: >-
       {{ 'nvidia-container-toolkit 已安装并配置 docker 运行时（docker run --gpus all 可用）' if docker_check.rc == 0 else
          'nvidia-container-toolkit 已安装（未检测到 docker，跳过运行时配置）' }}
+  tags: [gpuenv, container_toolkit]

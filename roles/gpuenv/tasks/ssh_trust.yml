@@ -17,7 +17,7 @@
     path: "~{{ ansible_user | default('root') }}/.ssh"
     state: directory
     mode: '0700'
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: 生成 SSH 密钥对（如不存在）
   shell: |
@@ -30,25 +30,25 @@
   changed_when: ssh_trust_keygen.stdout | trim == 'generated'
 
 # --- 2. 读取本节点公钥 ---
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 - name: 读取本节点公钥
   slurp:
     src: "~{{ ansible_user | default('root') }}/.ssh/id_rsa.pub"
   register: ssh_trust_own_pubkey
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: 设置本节点公钥事实
   set_fact:
     ssh_trust_pubkey: "{{ ssh_trust_own_pubkey['content'] | b64decode | trim }}"
 
 # --- 3. 汇总所有节点公钥（每台节点都执行，无需 run_once） ---
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 - name: 收集所有节点公钥与地址信息
   set_fact:
     ssh_trust_all: "{{ ansible_play_hosts | map('extract', hostvars, 'ssh_trust_pubkey') | list }}"
 
 # --- 4. 每个节点写入全部公钥（幂等：逐条检查不存在才追加） ---
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 - name: 确保 authorized_keys 文件存在（权限正确）
   file:
     path: "~{{ ansible_user | default('root') }}/.ssh/authorized_keys"
@@ -56,7 +56,7 @@
     mode: '0600'
     modification_time: preserve
     access_time: preserve
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: 分发全部节点公钥到 authorized_keys（幂等）
   shell: |
@@ -70,12 +70,12 @@
     stdin: "{{ ssh_trust_all | join('\n') }}"
   register: ssh_trust_distribute
   changed_when: ssh_trust_distribute.stdout | trim == 'updated'
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: 采集所有节点地址（IP + 主机名）
   set_fact:
     ssh_trust_addr: "{{ ansible_play_hosts | map('extract', hostvars, 'ansible_host') | list }}"
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: 记录其他节点地址到 known_hosts（幂等）
   shell: |
@@ -89,11 +89,11 @@
     [ "$changed" = "1" ] && echo updated || true
   register: ssh_trust_known_hosts
   changed_when: ssh_trust_known_hosts.stdout | trim == 'updated'
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]
 
 - name: SSH 免密互信配置完成
   debug:
     msg: >-
       SSH 免密互信已配置（{{ ssh_trust_all | length }} 个节点全互信）。
       可在任一节点验证: ssh {{ ansible_host }} 'hostname'
-  tags: [gpuenv, ssh_trust]
+  tags: [gpuenv, nccl, ssh_trust]

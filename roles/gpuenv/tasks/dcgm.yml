@@ -11,6 +11,7 @@
     name: datacenter-gpu-manager
     state: present
   when: gpuenv_dcgm_install_mode == 'online'
+  tags: [gpuenv, dcgm]
 
 #=============================== package 离线模式 ================================
 - name: package 模式校验安装包参数
@@ -21,6 +22,7 @@
   when:
     - gpuenv_dcgm_install_mode == 'package'
     - gpuenv_dcgm_package | length == 0
+  tags: [gpuenv, dcgm]
 
 - name: 下载 DCGM deb 包（URL）
   get_url:
@@ -30,6 +32,7 @@
   when:
     - gpuenv_dcgm_install_mode == 'package'
     - gpuenv_dcgm_package is match('^https?://')
+  tags: [gpuenv, dcgm]
 
 - name: 拷贝本地 DCGM deb 包到安装包目录
   copy:
@@ -39,11 +42,13 @@
   when:
     - gpuenv_dcgm_install_mode == 'package'
     - gpuenv_dcgm_package is not match('^https?://')
+  tags: [gpuenv, dcgm]
 
 - name: 安装 DCGM（package 模式，本地 deb 包）
   apt:
     deb: "{{ gpuenv_pkg_dir }}/datacenter-gpu-manager.deb"
   when: gpuenv_dcgm_install_mode == 'package'
+  tags: [gpuenv, dcgm]
 
 # 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/datacenter-gpu-manager.deb 安装包，不做删除
 
@@ -51,6 +56,7 @@
 - name: 刷新 systemd 单元缓存
   systemd:
     daemon_reload: yes
+  tags: [gpuenv, dcgm]
 
 - name: 设置 nvidia-dcgm 开机自启并启动
   systemd:
@@ -59,15 +65,18 @@
     state: started
   register: dcgm_start
   failed_when: false
+  tags: [gpuenv, dcgm]
 
 - name: 检查 nvidia-dcgm 服务实际运行状态
   command: systemctl is-active nvidia-dcgm
   register: dcgm_active
   changed_when: false
   failed_when: false
+  tags: [gpuenv, dcgm]
 
 - name: DCGM 启动结果提示
   debug:
     msg: >-
       {{ 'DCGM 服务已启动（可用 dcgmi discovery -l / dcgmi diag 诊断）' if dcgm_active.stdout | trim == 'active' else
          'DCGM 服务未运行（无 GPU 时属正常现象）' }}
+  tags: [gpuenv, dcgm]

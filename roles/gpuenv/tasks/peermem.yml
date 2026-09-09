@@ -4,16 +4,19 @@
 # nvidia_peermem 开启（GPUDirect RDMA 支持）
 # 说明：依赖 NVIDIA 驱动已安装；Ubuntu 24.04+（内核>=6.8）使用 DMA_BUF，无需此模块
 # 参考：https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting.html
+# 注意：模块本身随驱动（nvidia-dkms）安装时已编译，这里只做加载 + 开机自启配置
 
 - name: 检查 NVIDIA 驱动模块是否可用
   shell: modinfo nvidia >/dev/null 2>&1 && echo yes || echo no
   register: nvidia_mod_check
   changed_when: false
+  tags: [gpuenv, peermem]
 
 - name: 驱动未安装时跳过 peermem 配置
   debug:
     msg: "NVIDIA 驱动未安装，跳过 nvidia_peermem 配置（安装驱动后重新运行即可）"
   when: nvidia_mod_check.stdout | trim != 'yes'
+  tags: [gpuenv, peermem]
 
 - name: 加载 nvidia_peermem 模块
   modprobe:
@@ -22,6 +25,7 @@
   register: peermem_load
   failed_when: false
   when: nvidia_mod_check.stdout | trim == 'yes'
+  tags: [gpuenv, peermem]
 
 - name: peermem 加载结果提示
   debug:
@@ -29,6 +33,7 @@
       {{ 'nvidia_peermem 模块已加载' if peermem_load is not failed else
          'nvidia_peermem 加载失败（驱动版本过旧或内核不支持时可能出现，Ubuntu 24.04+ 使用 DMA_BUF 无需此模块）' }}
   when: nvidia_mod_check.stdout | trim == 'yes'
+  tags: [gpuenv, peermem]
 
 - name: 配置 nvidia_peermem 开机自动加载
   copy:
@@ -37,3 +42,4 @@
     content: |
       nvidia_peermem
   when: nvidia_mod_check.stdout | trim == 'yes' and peermem_load is not failed
+  tags: [gpuenv, peermem]

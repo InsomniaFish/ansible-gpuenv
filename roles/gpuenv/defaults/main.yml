@@ -26,6 +26,8 @@ gpuenv_install_container_toolkit: false # nvidia-container-toolkit（容器内�
 gpuenv_nccl_tests_ssh_trust: true        # nccl-tests 多机测试前置：配置主机间 SSH 免密互信（置 false 跳过）
 gpuenv_force: false                   # 是否忽略已安装检测，强制重装
 gpuenv_reboot_after_driver: false     # 驱动安装后是否自动重启（生产验收建议开启）
+gpuenv_apt_hold: true                 # 安装完成后 apt-mark hold 驱动/CUDA/fabricmanager/NCCL 等包，
+                                      # 防止 apt upgrade 意外升级（重装/升级版本/卸载前自动解除）
 
 # --- 安装模式（每个组件均支持 online 在线 / package 离线） ---
 # online ：在线安装（apt 官方源 / 官方直链下载）

@@ -9,6 +9,7 @@
   apt:
     name: pciutils
     state: present
+  tags: [gpuenv, pci_acs]
 
 - name: 检测 ACS 启用状态
   shell: |
@@ -19,12 +20,14 @@
     fi
   register: acs_status
   changed_when: false
+  tags: [gpuenv, pci_acs]
 
 - name: ACS 状态提示
   debug:
     msg: >-
       {{ '检测到 ACS 已启用，将执行关闭' if acs_status.stdout | trim == 'enabled' else
          'ACS 未启用（或无支持 ACS 的设备），无需处理' }}
+  tags: [gpuenv, pci_acs]
 
 - name: 写入 ACS 关闭脚本
   copy:
@@ -42,12 +45,14 @@
         setpci -v -s ${BDF} ECAP_ACS+0x6.w=0000
       done
   when: acs_status.stdout | trim == 'enabled'
+  tags: [gpuenv, pci_acs]
 
 - name: 执行 ACS 关闭
   command: /usr/local/bin/disable-pci-acs.sh
   register: acs_disable
   changed_when: true
   when: acs_status.stdout | trim == 'enabled'
+  tags: [gpuenv, pci_acs]
 
 - name: 配置开机自动关闭 ACS（systemd 服务）
   copy:
@@ -66,6 +71,7 @@
       [Install]
       WantedBy=multi-user.target
   when: acs_status.stdout | trim == 'enabled'
+  tags: [gpuenv, pci_acs]
 
 - name: 启用开机自动关闭 ACS 服务
   systemd:
@@ -73,6 +79,7 @@
     enabled: yes
     daemon_reload: yes
   when: acs_status.stdout | trim == 'enabled'
+  tags: [gpuenv, pci_acs]
 
 - name: 验证 ACS 关闭结果
   shell: |
@@ -84,9 +91,11 @@
   register: acs_verify
   changed_when: false
   when: acs_status.stdout | trim == 'enabled'
+  tags: [gpuenv, pci_acs]
 
 - name: 显示 ACS 处理结果
   debug:
     msg: >-
       {{ 'ACS 已关闭并配置开机持久化' if (acs_status.stdout | trim == 'disabled' or acs_verify.stdout | default('disabled') | trim == 'disabled') else
          'ACS 关闭后仍检测到启用状态，请手动检查' }}
+  tags: [gpuenv, pci_acs]

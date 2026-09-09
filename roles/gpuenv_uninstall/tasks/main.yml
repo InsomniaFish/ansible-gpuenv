@@ -21,6 +21,21 @@
   debug:
     msg: "即将在 {{ inventory_hostname }} 卸载组件: {{ gpuenv_uninstall_selected | join(', ') }}"
 
+#=============================== 解除 hold ======================================
+# 卸载前必做：被 hold 的包 apt-get 拒绝变更（-y 模式报 Held packages were changed），
+# 与 gpuenv role 的锁定范围保持一致（按包名前缀匹配）
+- name: 解除 GPU 相关包的 hold 标记（卸载前）
+  shell: |
+    held=$(apt-mark showhold 2>/dev/null | grep -E '^(nvidia-|libnvidia-|cuda|xserver-xorg-video-nvidia|libnccl|datacenter-gpu-manager)' || true)
+    if [ -n "$held" ]; then
+      apt-mark unhold $held
+    else
+      echo "无 GPU 相关包被 hold，跳过"
+    fi
+  register: uninstall_unhold
+  changed_when: "'Canceled hold' in uninstall_unhold.stdout"
+  failed_when: false
+
 #=============================== fabricmanager ==================================
 - name: 停止 fabricmanager 服务
   systemd:
@@ -48,7 +63,7 @@
 #=============================== driver =========================================
 - name: 卸载 NVIDIA 驱动相关包（不含 fabricmanager）
   shell: |
-    pkgs=$(dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-)" | grep -v fabricmanager | awk '{print $2}' | tr '\n' ' ')
+    pkgs=$(dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|xserver-xorg-video-nvidia)" | grep -v fabricmanager | awk '{print $2}' | tr '\n' ' ')
     [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "驱动未安装，跳过"
   register: uninstall_driver
   changed_when: "'Removing' in uninstall_driver.stdout or 'Purging' in uninstall_driver.stdout"
@@ -58,7 +73,7 @@
 #=============================== cuda ===========================================
 - name: 卸载 CUDA 相关包
   shell: |
-    pkgs=$(dpkg -l | grep -E "^ii\s+cuda" | awk '{print $2}' | tr '\n' ' ')
+    pkgs=$(dpkg -l | grep -E "^ii\s+cuda" | grep -v dcgm | awk '{print $2}' | tr '\n' ' ')
     [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "CUDA 未安装，跳过"
   register: uninstall_cuda
   changed_when: "'Removing' in uninstall_cuda.stdout or 'Purging' in uninstall_cuda.stdout"
@@ -190,7 +205,7 @@
     daemon_reload: yes
 
 - name: 验证卸载结果
-  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda|libnccl|datacenter-gpu-manager)" | awk '{print $2}' || true
+  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|xserver-xorg-video-nvidia|cuda|libnccl|datacenter-gpu-manager)" | awk '{print $2}' || true
   register: uninstall_verify
   changed_when: false
   check_mode: no

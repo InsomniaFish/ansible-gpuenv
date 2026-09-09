@@ -47,6 +47,12 @@
     or gpuenv_install_gpu_burn
   tags: [gpuenv, deps]
 
+# 解除 GPU 包的 hold 标记：为安装/重装/升级清障
+# （apt -y 非交互模式拒绝变更被 hold 的包；gpuenv_apt_hold=false 时也执行，自动释放历史 hold）
+- name: 解除组件包 hold 标记（幂等）
+  include_tasks: apt_unhold.yml
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+
 - name: 安装 MLNX OFED / RDMA 栈（可选，必须在 GPU 驱动之前）
   include_tasks: ofed.yml
   when: gpuenv_install_ofed
@@ -105,6 +111,13 @@
   include_tasks: container_toolkit.yml
   when: gpuenv_install_container_toolkit
   tags: [gpuenv, container_toolkit]
+
+# 锁定组件包版本（apt-mark hold）：防止 apt upgrade / unattended-upgrades 意外升级
+# 驱动 / CUDA / fabricmanager / NCCL；重装/升级版本前由上方 apt_unhold 自动解除
+- name: 锁定组件包版本（apt-mark hold）
+  include_tasks: apt_hold.yml
+  when: gpuenv_apt_hold | bool
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
 
 - name: 未指定任何组件时提示
   debug:

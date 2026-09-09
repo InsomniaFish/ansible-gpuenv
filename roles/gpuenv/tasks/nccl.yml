@@ -115,10 +115,10 @@
 
 - name: 解压 OpenMPI 源码（到构建目录）
 
-  command: >
-    tar -xzf {{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz -C {{ gpuenv_build_dir }}
-  args:
-    creates: "{{ gpuenv_openmpi_src_dir }}"
+  unarchive:
+    src: "{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    dest: "{{ gpuenv_build_dir }}"
+    remote_src: yes
   when: gpuenv_force or not openmpi_bin.stat.exists
   tags: [gpuenv, nccl]
 
@@ -185,10 +185,37 @@
     - gpuenv_force or not nccl_tests_bin.stat.exists
   tags: [gpuenv, nccl]
 
-- name: 拷贝本地 nccl-tests 源码包到安装包目录（提供本地源码包时）
+- name: 解析 nccl-tests 本地源码包路径（支持通配符，如 nccl-tests*.zip）
+
+  set_fact:
+    nccl_tests_pkg_glob: "{{ nccl_pkg_glob_expr }}"
+    nccl_tests_pkg_file: "{{ query('fileglob', nccl_pkg_glob_expr) | first | default('') }}"
+  vars:
+    nccl_pkg_glob_expr: >-
+      {{ gpuenv_nccl_tests_src_package
+         if gpuenv_nccl_tests_src_package.startswith('/')
+         else gpuenv_pkg_dir ~ '/' ~ gpuenv_nccl_tests_src_package }}
+  when:
+    - gpuenv_nccl_tests_src_package | length > 0
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl]
+
+- name: nccl-tests 源码包未匹配时报错
+  fail:
+    msg: >-
+      未找到与 {{ nccl_tests_pkg_glob }} 匹配的源码包。
+      支持通配符（如 {{ gpuenv_pkg_dir }}/nccl-tests*.zip，裸文件名按 {{ gpuenv_pkg_dir }} 解析），
+      多个匹配时取字典序第一个。
+  when:
+    - gpuenv_nccl_tests_src_package | length > 0
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+    - nccl_tests_pkg_file | default('') | length == 0
+  tags: [gpuenv, nccl]
+
+- name: 拷贝本地 nccl-tests 源码包到安装包目录（支持通配符）
 
   copy:
-    src: "{{ gpuenv_nccl_tests_src_package }}"
+    src: "{{ nccl_tests_pkg_file }}"
     dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
     mode: '0644'
   when:
