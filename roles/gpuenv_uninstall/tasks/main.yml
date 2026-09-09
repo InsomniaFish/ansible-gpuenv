@@ -176,12 +176,16 @@
   when: "'peermem' in gpuenv_uninstall_selected"
 
 #=============================== pci_acs ========================================
-- name: 停止并禁用 ACS 关闭服务
-  systemd:
-    name: disable-pci-acs
-    state: stopped
-    enabled: no
-  failed_when: false
+- name: 停止并禁用 ACS 关闭服务（新版 disable-pcie-acs；旧版 disable-pci-acs 兼容清理）
+  shell: |
+    systemctl stop disable-pcie-acs.service 2>/dev/null || true
+    systemctl disable disable-pcie-acs.service 2>/dev/null || true
+    systemctl stop disable-pci-acs.service 2>/dev/null || true
+    systemctl disable disable-pci-acs.service 2>/dev/null || true
+    systemctl daemon-reload
+    echo "ACS 服务已停止并禁用"
+  register: uninstall_pci_acs_svc
+  changed_when: true
   when: "'pci_acs' in gpuenv_uninstall_selected"
 
 - name: 删除 ACS 关闭服务与脚本
@@ -189,6 +193,8 @@
     path: "{{ item }}"
     state: absent
   loop:
+    - /etc/systemd/system/disable-pcie-acs.service
+    - /usr/local/sbin/disable-pcie-acs.sh
     - /etc/systemd/system/disable-pci-acs.service
     - /usr/local/bin/disable-pci-acs.sh
   when: "'pci_acs' in gpuenv_uninstall_selected"

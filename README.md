@@ -237,7 +237,9 @@ ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=n
 |---|---|---|---|
 | MLNX OFED | `gpuenv_install_ofed` | false | IB 网络驱动，先于 GPU 驱动安装 |
 | nvidia_peermem | `gpuenv_install_peermem` | false | GPUDirect RDMA 支持，加载模块并配置开机自动加载 |
-| PCI ACS 关闭 | `gpuenv_install_pci_acs` | false | 检测 ACS 状态，启用时自动关闭并配置开机持久化 |
+| PCI ACS 关闭 | `gpuenv_install_pci_acs` | false | 幂等关闭所有支持 ACS 的设备，并配置开机服务自动执行 |
+
+ACS 关闭实现：`/usr/local/sbin/disable-pcie-acs.sh` 对全部支持 ACS 的设备**无条件幂等**写 `ACSCtl=0000`，并逐台输出 `BDF 前值 -> 后值` 审计明细；systemd 服务 `disable-pcie-acs.service`（`DefaultDependencies=no` + `Before=network-pre.target`）在开机先于网络栈自动重写——ACS 寄存器位于 PCI 配置空间，重启即恢复固件默认值，必须开机重设。playbook 收尾自动验证无 `SrcValid+` 残留，未关净即报错。
 
 在 `vars/deploy.yml` 中启用对应开关后执行 `ansible-playbook -i inventory.ini site.yml` 即可；临时执行可：
 
@@ -254,10 +256,14 @@ nccl-tests 带宽测试示例（需有 GPU）：
 
 ## 其他行为开关
 
+其他行为开关（在 `vars/deploy.yml` 中配置）：
+
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `gpuenv_force` | false | 忽略已安装检测，强制重装/重编译 |
 | `gpuenv_reboot_after_driver` | false | 驱动安装后自动重启（加载内核模块） |
+| `gpuenv_apt_hold` | true | 安装后 `apt-mark hold` 驱动/CUDA/fabricmanager/NCCL 全部版本联动包，防止 `apt upgrade` 意外升级（重装/升级/卸载前自动解除） |
+| `gpuenv_uninstall_autoremove` | true | 卸载后执行 `apt autoremove --purge` 清理孤立依赖（仅 uninstall.yml 读取，可用 `-e gpuenv_uninstall_autoremove=false` 临时跳过） |
 
 ## 单机脚本（无 Ansible）
 
