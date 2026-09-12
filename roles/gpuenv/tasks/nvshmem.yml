@@ -1,0 +1,173 @@
+---
+# 可选组件：NVSHMEM（NVIDIA SHMEM 多 GPU / 多节点通信库，OpenSHMEM 兼容 API）
+# 依赖：GPU 驱动（libcuda）+ CUDA；GPUDirect RDMA 场景建议先装 OFED 并加载 nvidia-peermem
+# 安装模式（gpuenv_nvshmem_install_mode）：
+#   - online（默认）【URL+apt】：按 gpuenv_nvshmem_version 自动拼接下载 nvshmem-local-repo
+#     引导 deb（等价官方 wget + dpkg -i 方式）：
+#     <gpuenv_nvshmem_repo_base>/<版本>/local_installers/nvshmem-local-repo-ubuntu2204-<版本>_<版本>-1_amd64.deb
+#   - package：使用已下载的引导 deb（gpuenv_nvshmem_package，本地路径或 URL）
+# 安装步骤与官方一致：dpkg -i 引导包（建立本地 apt 仓库与源配置）→ 拷贝 keyring
+#   → apt update → apt install nvshmem-cuda-<CUDA 大版本>
+# 驱动参数（NVSHMEM 官方要求，与是否新装无关，每次执行均确保写入）：
+#   /etc/modprobe.d/nvidia.conf：
+#     options nvidia NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"
+#   写入后 update-initramfs -u；参数在 NVIDIA 驱动模块加载时读取，需重启后生效
+
+#=============================== 参数校验 ========================================
+- name: 校验 nvshmem 安装包参数（package 模式）
+  fail:
+    msg: >-
+      gpuenv_nvshmem_install_mode=package 但未提供安装包，请通过
+      -e gpuenv_nvshmem_package=<nvshmem-local-repo 引导 deb 路径或 URL> 指定
+  when:
+    - gpuenv_nvshmem_install_mode == 'package'
+    - gpuenv_nvshmem_package | length == 0
+  tags: [gpuenv, nvshmem]
+
+#=============================== 已安装检测（幂等）===============================
+- name: 检查 nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }} 是否已安装
+  shell: |
+    status=$(dpkg-query -W -f='${db:Status-Abbrev}' nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }} 2>/dev/null | cut -c1-2)
+    [ "$status" = "ii" ] && dpkg-query -W -f='${Version}' nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }}
+  register: nvshmem_installed
+  changed_when: false
+  failed_when: false
+  check_mode: no
+  tags: [gpuenv, nvshmem]
+
+- name: 设置是否需要安装 nvshmem（版本前缀匹配，如 3.7.2 匹配 3.7.2-1）
+  set_fact:
+    gpuenv_nvshmem_need_install: >-
+      {{ gpuenv_force | bool
+         or nvshmem_installed.rc != 0
+         or not (nvshmem_installed.stdout | trim).startswith(gpuenv_nvshmem_version) }}
+  tags: [gpuenv, nvshmem]
+
+- name: nvshmem 已安装时跳过安装步骤
+  debug:
+    msg: "nvshmem 已安装: nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }} {{ nvshmem_installed.stdout | trim }}，跳过安装"
+  when: not (gpuenv_nvshmem_need_install | bool)
+  tags: [gpuenv, nvshmem]
+
+#=============================== online 模式：自动拼接下载引导 deb =================
+- name: 下载 nvshmem local-repo 引导包（online 模式，按 gpuenv_nvshmem_version 自动拼接 URL）
+  get_url:
+    url: "{{ gpuenv_nvshmem_repo_base }}/{{ gpuenv_nvshmem_version }}/local_installers/nvshmem-local-repo-{{ ansible_distribution | lower }}{{ ansible_distribution_major_version }}04-{{ gpuenv_nvshmem_version }}_{{ gpuenv_nvshmem_version }}-1_amd64.deb"
+    dest: "{{ gpuenv_pkg_dir }}/nvshmem-local-repo.deb"
+    mode: '0644'
+  when:
+    - gpuenv_nvshmem_install_mode == 'online'
+    - gpuenv_nvshmem_need_install | bool
+  tags: [gpuenv, nvshmem]
+
+#=============================== package 模式：本地/URL 引导 deb ==================
+- name: 下载 nvshmem 引导包（package 模式，离线包 URL）
+  get_url:
+    url: "{{ gpuenv_nvshmem_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nvshmem-local-repo.deb"
+    mode: '0644'
+  when:
+    - gpuenv_nvshmem_install_mode == 'package'
+    - gpuenv_nvshmem_need_install | bool
+    - gpuenv_nvshmem_package is match('^https?://')
+  tags: [gpuenv, nvshmem]
+
+- name: 拷贝本地 nvshmem 引导包（package 模式，本地路径）
+  copy:
+    src: "{{ gpuenv_nvshmem_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nvshmem-local-repo.deb"
+    mode: '0644'
+  when:
+    - gpuenv_nvshmem_install_mode == 'package'
+    - gpuenv_nvshmem_need_install | bool
+    - gpuenv_nvshmem_package is not match('^https?://')
+  tags: [gpuenv, nvshmem]
+
+#=============================== 安装（online / package 共用）====================
+- name: 安装 nvshmem local-repo 引导包（dpkg -i：建立本地 apt 仓库与源配置）
+  apt:
+    deb: "{{ gpuenv_pkg_dir }}/nvshmem-local-repo.deb"
+    state: present
+  when: gpuenv_nvshmem_need_install | bool
+  tags: [gpuenv, nvshmem]
+
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/nvshmem-local-repo.deb 安装包，不做删除
+
+- name: 拷贝 nvshmem 仓库签名 keyring 到 /usr/share/keyrings（官方 cp 步骤，幂等）
+  shell: |
+    src_key=$(ls /var/nvshmem-local-repo-*/nvshmem-*-keyring.gpg 2>/dev/null | head -n 1)
+    if [ -n "$src_key" ]; then
+      dst=/usr/share/keyrings/$(basename "$src_key")
+      if [ ! -f "$dst" ] || ! cmp -s "$src_key" "$dst"; then
+        cp -f "$src_key" "$dst"
+        echo "keyring 已拷贝: $dst"
+      else
+        echo "keyring 已存在且一致，跳过"
+      fi
+    else
+      echo "未找到 nvshmem keyring，跳过"
+    fi
+  register: nvshmem_keyring
+  changed_when: "'已拷贝' in nvshmem_keyring.stdout"
+  failed_when: false
+  tags: [gpuenv, nvshmem]
+
+- name: 刷新软件源缓存（使 nvshmem 本地仓库生效；瞬时网络抖动自动重试）
+  apt:
+    update_cache: yes
+  register: nvshmem_apt_update
+  until: nvshmem_apt_update is success
+  retries: 4
+  delay: 15
+  when: gpuenv_nvshmem_need_install | bool
+  tags: [gpuenv, nvshmem]
+
+- name: 安装 nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }}（版本由所选引导包仓库决定）
+  apt:
+    name: "nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }}"
+    state: present
+  when: gpuenv_nvshmem_need_install | bool
+  tags: [gpuenv, nvshmem]
+
+#=============================== 驱动参数（NVSHMEM 官方要求）=====================
+- name: 写入 nvidia 驱动 modprobe 参数（EnableStreamMemOPs / PeerMappingOverride）
+  copy:
+    dest: /etc/modprobe.d/nvidia.conf
+    content: |
+      # NVSHMEM GPUDirect RDMA 驱动参数（由 ansible-gpuenv nvshmem 组件维护）
+      options nvidia NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"
+    mode: '0644'
+  register: nvshmem_modprobe_conf
+  tags: [gpuenv, nvshmem]
+
+- name: 更新 initramfs（modprobe 参数变更后执行；对应官方 update-initramfs -u）
+  command: update-initramfs -u
+  when: nvshmem_modprobe_conf is changed
+  tags: [gpuenv, nvshmem]
+
+#=============================== 验证 ==========================================
+- name: 验证 nvshmem 安装与驱动参数状态
+  shell: |
+    pkg=nvshmem-cuda-{{ gpuenv_cuda_version.split('.')[0] }}
+    if dpkg -s $pkg >/dev/null 2>&1; then
+      echo "nvshmem 已安装: $pkg $(dpkg-query -W -f='${Version}' $pkg)"
+    else
+      echo "nvshmem 未安装"
+    fi
+    if grep -qE '^EnableStreamMemOPs: 1' /proc/driver/nvidia/params 2>/dev/null; then
+      echo "驱动参数 EnableStreamMemOPs 已生效（运行中驱动）"
+    elif [ -f /etc/modprobe.d/nvidia.conf ]; then
+      echo "驱动参数已写入 /etc/modprobe.d/nvidia.conf，重启后生效（对应官方 reboot 步骤）"
+    else
+      echo "驱动参数未写入"
+    fi
+  register: nvshmem_verify
+  changed_when: false
+  failed_when: false
+  check_mode: no
+  tags: [gpuenv, nvshmem]
+
+- name: NVSHMEM 安装结果提示
+  debug:
+    msg: "{{ nvshmem_verify.stdout_lines }}"
+  tags: [gpuenv, nvshmem]

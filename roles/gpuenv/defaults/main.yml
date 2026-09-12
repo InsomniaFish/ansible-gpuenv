@@ -21,6 +21,7 @@ gpuenv_install_gpu_burn: false          # gpu-burn（GPU 压力测试）
 gpuenv_install_nccl: false              # NCCL 库 + OpenMPI + nccl-tests
 gpuenv_install_dcgm: false              # DCGM 数据中心 GPU 管理器（硬件诊断/监控）
 gpuenv_install_container_toolkit: false # nvidia-container-toolkit（容器内使用 GPU）
+gpuenv_install_nvshmem: false           # NVSHMEM 多 GPU/多节点通信库（含驱动参数配置）
 
 # --- 行为开关 ---
 gpuenv_nccl_tests_ssh_trust: true        # nccl-tests 多机测试前置：配置主机间 SSH 免密互信（置 false 跳过）
@@ -30,16 +31,26 @@ gpuenv_apt_hold: true                 # 安装完成后 apt-mark hold 驱动/CUD
                                       # 防止 apt upgrade 意外升级（重装/升级版本/卸载前自动解除）
 
 # --- 安装模式（每个组件均支持 online 在线 / package 离线） ---
-# online ：在线安装（apt 官方源 / 官方直链下载）
-# package：离线安装（使用本地安装包，通过对应 gpuenv_<组件>_package 指定本地路径或 URL）
+# online ：在线安装，机制分三类（详见 vars/deploy.yml 头部「在线机制总表」）：
+#   【apt】apt 软件源：driver / cuda / fabricmanager / nccl / dcgm / container_toolkit /
+#          ofed（flavor=mlnx_ofed 时装 Ubuntu 原生 rdma-core）
+#   【URL】直链下载：openmpi / nccl_tests / gpu_burn（下载源码包后编译安装）
+#   【URL+apt】两段式：ofed（flavor=doca_ofed 时按 gpuenv_ofed_version 自动配置 DOCA
+#          官方源——下载 GPG 密钥 + 写 sources.list.d/doca.list，再由 apt 装 doca-ofed）/
+#          nvshmem（按版本下载 local-repo 引导 deb 建本地 apt 仓库，再由 apt 装
+#          nvshmem-cuda-<CUDA 大版本>）
+# package：离线安装（使用本地安装包，通过对应 gpuenv_<组件>_package 指定本地路径或离线包 URL）
 gpuenv_driver_install_mode: "online"
 gpuenv_cuda_install_mode: "online"
 gpuenv_fm_install_mode: "online"
 gpuenv_ofed_install_mode: "online"
 gpuenv_nccl_install_mode: "online"
+gpuenv_openmpi_install_mode: "online"
+gpuenv_nccl_tests_install_mode: "online"
 gpuenv_gpu_burn_install_mode: "online"
 gpuenv_dcgm_install_mode: "online"
 gpuenv_container_toolkit_install_mode: "online"
+gpuenv_nvshmem_install_mode: "online"
 
 # --- 离线安装包（仅 package 模式使用；本地路径或 URL） ---
 # 驱动 .run 安装包，官方归档：
@@ -51,25 +62,37 @@ gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/l
 # fabricmanager deb 安装包（源中无对应版本时使用），例如：
 #   https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_<版本>-1_amd64.deb
 gpuenv_fm_package: ""
-# OFED tgz 安装包，默认官方直链（24.10-1.1.4.0，与基线一致），其他版本按规则拼接：
-#   https://content.mellanox.com/ofed/MLNX_OFED-<版本>/MLNX_OFED_LINUX-<版本>-ubuntu22.04-x86_64.tgz
+# OFED 安装包（离线地址）：
+#   - flavor=mlnx_ofed：MLNX_OFED tgz 安装器（本地路径或 URL），默认官方直链（24.10-1.1.4.0），
+#     其他版本按规则拼接：
+#     https://content.mellanox.com/ofed/MLNX_OFED-<版本>/MLNX_OFED_LINUX-<版本>-ubuntu22.04-x86_64.tgz
+#   - flavor=doca_ofed：本地 deb 目录，内含 doca-ofed 元包及其后全部依赖 deb
+#     （可从 DOCA 官方源 …/doca/<版本>/ubuntu22.04/x86_64/ 全量下载，或由官方 ISO 镜像解出）
 gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-24.10-1.1.4.0/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz"
 # NCCL 离线安装包：存放 libnccl2 / libnccl-dev deb 包的本地目录
 gpuenv_nccl_package: ""
-# OpenMPI 源码包（离线）：本地 openmpi-x.y.z.tar.gz 路径
-gpuenv_openmpi_src_package: ""
-# nccl-tests 源码包（离线）：本地 nccl-tests zip 包路径
-gpuenv_nccl_tests_src_package: ""
+# OpenMPI 源码包（离线）：本地 openmpi-x.y.z.tar.gz 路径或离线包 URL
+gpuenv_openmpi_package: ""
+# nccl-tests 源码包（离线）：本地 zip 路径（支持通配符，如 /opt/packages/nccl-tests*.zip；
+# 裸文件名按 gpuenv_pkg_dir 解析）或离线包 URL
+gpuenv_nccl_tests_package: ""
 # gpu-burn 源码包（离线）：本地 gpu-burn zip 包路径
 gpuenv_gpu_burn_package: ""
 # DCGM deb 安装包（离线）：本地 datacenter-gpu-manager deb 路径或 URL
 gpuenv_dcgm_package: ""
 # nvidia-container-toolkit deb 安装包（离线）：本地路径或 URL
 gpuenv_container_toolkit_package: ""
+# NVSHMEM 引导包（离线，仅 package 模式）：nvshmem-local-repo deb 本地路径或 URL
+gpuenv_nvshmem_package: ""
+# NVSHMEM 版本与下载基址（online 按 <base>/<版本>/local_installers/ 拼接引导 deb URL）
+gpuenv_nvshmem_version: "3.7.2"
+gpuenv_nvshmem_repo_base: "https://developer.download.nvidia.cn/compute/nvshmem"
 
 # --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供） ---
 gpuenv_repo_base_url: "https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64"
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
+# DOCA 官方源基址（doca_ofed 专用）：repo 按版本拼接 <base>/<DOCA版本>/ubuntu22.04/x86_64/
+gpuenv_doca_repo_base: "https://linux.mellanox.com/public/repo/doca"
 gpuenv_gpu_burn_url: "https://ghproxy.net/https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 gpuenv_driver_version: "580.105.08"
 gpuenv_cuda_version: "13.0.2"
@@ -79,12 +102,23 @@ gpuenv_nccl_tests_url: "https://ghproxy.net/https://github.com/NVIDIA/nccl-tests
 gpuenv_openmpi_version: "4.1.7"
 gpuenv_openmpi_url: "https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.7.tar.gz"
 
-# --- MLNX OFED（官方下载页见下） ---
-# 官方下载：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
-# 说明：NVIDIA 官方 OFED apt 仓库（linux.mellanox.com）实测无法通过 apt 拉取，
-#       故 online 模式安装 Ubuntu 原生 RDMA 栈（rdma-core 等，内核自带 mlx5 驱动）
+# --- IB 网络（须先于 GPU 驱动安装；flavor 二选一） ---
+# flavor（gpuenv_ofed_flavor）：
+#   mlnx_ofed：传统 MLNX_OFED。online=apt 装 Ubuntu 原生 rdma-core（rdma-core 等，
+#              内核自带 mlx5 驱动）；package=官方 tgz 安装器（mlnxofedinstall）
+#   doca_ofed：DOCA-Host（MLNX_OFED 继任者，同驱动同工具）。online=按 gpuenv_ofed_version
+#              （DOCA 发行版本，如 3.2.2）自动配置 DOCA 官方源（GPG 密钥 + doca.list），
+#              再 apt 装 doca-ofed 元包；package=本地 deb 目录全量安装
+# 官方下载页：
+#   MLNX_OFED: https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+#   DOCA:      https://network.nvidia.com/products/doca-host/
+gpuenv_ofed_flavor: "mlnx_ofed"
+# 版本（gpuenv_ofed_version，语义随 flavor 变化）：
+#   mlnx_ofed：OFED 版本号（如 23.10-2.1.3.1），ofed_info 校验；online 模式不参与
+#   doca_ofed：DOCA 发行版本（如 3.2.2），用于拼接官方源 …/doca/<版本>/ubuntu22.04/x86_64/；
+#              dpkg 安装版本前缀校验（如 3.2.2 匹配 3.2.2-035000-25.10）
 gpuenv_ofed_version: "24.10-3.2.0"
-# online 模式安装的 RDMA 软件包（可按需增减）
+# flavor=mlnx_ofed 且 online 模式安装的 RDMA 软件包（可按需增减）
 gpuenv_ofed_native_packages:
   - rdma-core
   - ibverbs-providers

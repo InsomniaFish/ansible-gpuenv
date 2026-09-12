@@ -19,6 +19,7 @@
 #   gpuenv_install_nccl              NCCL + OpenMPI + nccl-tests
 #   gpuenv_install_dcgm              DCGM 监控
 #   gpuenv_install_container_toolkit nvidia-container-toolkit
+#   gpuenv_install_nvshmem           NVSHMEM 多 GPU/多节点通信库（含驱动参数配置）
 #
 # 安装模式（每个组件均可指定，写于 vars/deploy.yml）：
 #   gpuenv_<组件>_install_mode: online     在线安装（默认）

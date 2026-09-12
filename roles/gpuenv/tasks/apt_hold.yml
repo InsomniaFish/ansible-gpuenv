@@ -7,13 +7,15 @@
 #   - CUDA（online 模式）：cuda-toolkit-<主>-<次> 元包（如 cuda-toolkit-13-0，其依赖均精确锁版本）
 #   - fabricmanager：nvidia-fabricmanager（online/package 两种模式均为 dpkg 包）
 #   - NCCL：libnccl2 / libnccl-dev（online/package 两种模式均为 dpkg 包）
+#   - OFED（flavor=doca_ofed）：doca-ofed 元包（两种模式均为 dpkg 包）
+#   - NVSHMEM：nvshmem-cuda-<大版本>（apt 包与 CUDA 主版本联动）
 # 说明：
 #   - 驱动 .run 包模式（gpuenv_driver_install_mode=package）、CUDA .run 包模式非 dpkg 管理，不做 hold
 #   - OFED online 模式安装 Ubuntu 原生 rdma-core（与内核联动更新），不在锁定范围
 #   - rdma-core / 内核等系统包升级不受影响（dkms 会自动为新内核重编驱动模块，驱动版本不变）
 # 幂等：已在 hold 列表中的包不会重复执行
 
-- name: 计算需要锁定的候选包列表（驱动子包 + cuda 元包 + fabricmanager + nccl）
+- name: 计算需要锁定的候选包列表（驱动子包 + cuda 元包 + fabricmanager + nccl + doca-ofed + nvshmem）
   set_fact:
     gpuenv_hold_candidates: >-
       {{ (gpuenv_driver_subpackages | map('regex_replace', '^(.*)$', '\1-' ~ gpuenv_driver_major) | list
@@ -21,22 +23,24 @@
          + (['cuda-toolkit-' ~ (gpuenv_cuda_version.split('.')[:2] | join('-'))]
             if (gpuenv_install_cuda | bool and gpuenv_cuda_install_mode == 'online') else [])
          + (['nvidia-fabricmanager'] if (gpuenv_install_fabricmanager | bool) else [])
-         + (['libnccl2', 'libnccl-dev'] if (gpuenv_install_nccl | bool) else []) }}
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+         + (['libnccl2', 'libnccl-dev'] if (gpuenv_install_nccl | bool) else [])
+         + (['doca-ofed'] if (gpuenv_install_ofed | bool and gpuenv_ofed_flavor == 'doca_ofed') else [])
+         + (['nvshmem-cuda-' ~ gpuenv_cuda_version.split('.')[0]] if (gpuenv_install_nvshmem | bool) else []) }}
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]
 
 - name: 获取 dpkg 中完全安装（ii）状态的包名清单
   shell: dpkg-query -W -f='${Package}\t${db:Status-Abbrev}\n' 2>/dev/null | awk '$2 ~ /^ii/ {print $1}'
   register: apt_hold_installed_all
   changed_when: false
   failed_when: false
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]
 
 - name: 获取当前已被 hold 的包名清单
   command: apt-mark showhold
   register: apt_hold_current
   changed_when: false
   failed_when: false
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]
 
 - name: 筛选出候选包中已安装且尚未 hold 的（本次实际锁定目标）
   set_fact:
@@ -44,17 +48,17 @@
       {{ gpuenv_hold_candidates
          | intersect(apt_hold_installed_all.stdout_lines | map('trim') | list)
          | difference(apt_hold_current.stdout_lines | map('trim') | list) }}
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]
 
 - name: 锁定组件包版本（apt-mark hold，防止 apt upgrade 升级）
   # 注意：控制节点 Ansible 2.10 的 apt 模块不支持 state=held，故直接用 apt-mark
   command: apt-mark hold {{ gpuenv_hold_targets | join(' ') }}
   when: gpuenv_hold_targets | length > 0
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]
 
 - name: 输出组件包锁定结果
   debug:
     msg: >-
       {{ '无可新增锁定的已安装组件包（可能均已处于 hold 状态）' if gpuenv_hold_targets | length == 0
          else '已锁定 ' ~ (gpuenv_hold_targets | length) ~ ' 个包: ' ~ gpuenv_hold_targets | join(', ') }}
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]

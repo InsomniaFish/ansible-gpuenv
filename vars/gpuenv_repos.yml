@@ -31,6 +31,7 @@ gpuenv_driver_version: "580.105.08"   # NVIDIA 驱动版本
 gpuenv_cuda_version: "13.0.2"          # CUDA Toolkit 版本
 gpuenv_fm_version: ""                  # fabricmanager 版本，留空则与驱动一致
 gpuenv_nccl_version: "2.28.9"          # NCCL 版本（需与 CUDA 版本配套，如 2.28.9-1+cuda13.0）
+gpuenv_nvshmem_version: "3.7.2"        # NVSHMEM 版本（online 按此拼接引导 deb URL；apt 包名随 CUDA 大版本，如 nvshmem-cuda-13）
 
 # --- CUDA 离线安装包（仅 package 模式） ---
 # 本地路径或 URL，默认官方直链
@@ -39,6 +40,9 @@ gpuenv_nccl_version: "2.28.9"          # NCCL 版本（需与 CUDA 版本配套�
 gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
 
 # --- 可选组件源配置 ---
+# NVSHMEM 官方下载基址（.cn 国内镜像，与 CUDA 源同域）：
+#   引导 deb 按 <base>/<版本>/local_installers/nvshmem-local-repo-ubuntu2204-<版本>_<版本>-1_amd64.deb 拼接
+gpuenv_nvshmem_repo_base: "https://developer.download.nvidia.cn/compute/nvshmem"
 # NCCL 官方下载页（离线 deb 包备用获取渠道，按 CUDA 版本选择对应包）：
 #   https://developer.nvidia.com/nccl/nccl-download
 #   官方 deb 直链格式（ ubuntu2204 / x86_64，可能重定向到国内镜像）：
@@ -58,11 +62,27 @@ gpuenv_openmpi_url: "https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.7.tar.g
 # 国内镜像备选（需自行验证可用性）：
 #   https://mirrors.aliyun.com/openmpi/ 或华为云/清华开源镜像站搜索 openmpi
 
-# --- IB 网络（MLNX OFED，需先于 GPU 驱动安装；online 模式实际安装 rdma-core 原生栈） ---
-# OFED 安装包（本地路径或 URL）：
-#   - 默认官方直链（23.10-2.1.3.1），package 模式开箱即用（在线下载安装）
-#   - 离线安装：在 deploy.yml 中将 gpuenv_ofed_package 覆盖为本地 tgz 路径
-#   - 其他版本按规则拼接：https://content.mellanox.com/ofed/MLNX_OFED-<版本>/MLNX_OFED_LINUX-<版本>-ubuntu22.04-x86_64.tgz
-# 官方下载页：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+# --- IB 网络（须先于 GPU 驱动安装；flavor 二选一） ---
+# gpuenv_ofed_flavor：mlnx_ofed / doca_ofed（详见 vars/deploy.yml OFED 组件块说明）
+#
+# flavor = mlnx_ofed：
+#   - online【apt】：安装 Ubuntu 原生 RDMA 栈（rdma-core 等，内核自带 mlx5 驱动；
+#     MLNX_OFED 官方 apt 仓库实测无法直接 apt 拉取）
+#   - package【tgz】：MLNX_OFED 安装器，离线地址 gpuenv_ofed_package（本地路径或 URL），
+#     默认官方直链（23.10-2.1.3.1），其他版本按规则拼接：
+#     https://content.mellanox.com/ofed/MLNX_OFED-<版本>/MLNX_OFED_LINUX-<版本>-ubuntu22.04-x86_64.tgz
+#     官方下载页：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+#
+# flavor = doca_ofed（DOCA-Host，MLNX_OFED 继任者，同驱动/库/工具）：
+#   - online【URL+apt】：无需配置在线地址——按 gpuenv_ofed_version（DOCA 发行版本，如 3.2.2）
+#     自动下载 GPG 密钥并配置 DOCA 官方源（<base>/<DOCA版本>/ubuntu22.04/x86_64/），
+#     再 apt 安装 doca-ofed 元包（等价官方 doca-host_<版本>-ubuntu2204_amd64.deb 引导方式）
+#   - package【deb 目录】：离线地址 gpuenv_ofed_package = 本地目录（doca-ofed 元包及全部依赖 deb，
+#     可从下方 DOCA 官方源目录全量下载）
+#   官方下载页：https://network.nvidia.com/products/doca-host/
+gpuenv_ofed_flavor: "mlnx_ofed"
+# 版本语义：mlnx_ofed=OFED 版本（ofed_info 校验）/ doca_ofed=DOCA 发行版本（如 3.2.2）
 gpuenv_ofed_version: "23.10-2.1.3.1"
 gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-23.10-2.1.3.1/MLNX_OFED_LINUX-23.10-2.1.3.1-ubuntu22.04-x86_64.tgz"
+# DOCA 官方源基址（doca_ofed 专用）：repo 按版本拼接 <base>/<DOCA版本>/ubuntu22.04/x86_64/
+gpuenv_doca_repo_base: "https://linux.mellanox.com/public/repo/doca"

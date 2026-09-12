@@ -26,7 +26,7 @@ gpuenv_uninstall_autoremove: true
 #   - "core"（默认）：卸载核心组件（驱动 / CUDA / fabricmanager / gpu-burn）
 #   - "all"：卸载全部组件（核心 + 可选）
 #   - 逗号分隔的组件列表：仅卸载指定组件，例如 "nccl,openmpi,nccl_tests"
-# 可选组件名：nccl / openmpi / nccl_tests / dcgm / container_toolkit / ofed / peermem / pci_acs
+# 可选组件名：nccl / openmpi / nccl_tests / dcgm / container_toolkit / ofed / peermem / pci_acs / nvshmem
 gpuenv_uninstall_components: "core"
 
 # 组件分组定义（无需修改）
@@ -44,6 +44,7 @@ gpuenv_optional_components:
   - ofed
   - peermem
   - pci_acs
+  - nvshmem
 
 # 实际卸载的组件列表（由 gpuenv_uninstall_components 解析得到）
 gpuenv_uninstall_selected: >-

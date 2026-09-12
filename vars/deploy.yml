@@ -2,7 +2,7 @@
 #===============================================================================
 # 部署配置清单（deploy.yml）
 #
-# 作用：把"装哪些组件、版本多少、在线还是离线、离线包在哪"集中写在本文件，
+# 作用：把"装哪些组件、版本多少、在线还是离线、包在哪"集中写在本文件，
 #       执行时无需再拼一长串 -e 参数：
 #         ansible-playbook -i inventory.ini site.yml
 #
@@ -10,103 +10,171 @@
 #   role defaults < vars/gpuenv_repos.yml < vars/deploy.yml < -e 命令行
 #   即：本文件可覆盖版本基线；命令行 -e 仍可临时覆盖本文件。
 #
-# 每个组件块按固定顺序配置：
-#   ① 是否安装  gpuenv_install_<组件>
-#   ② 版本      gpuenv_<组件>_version（无版本概念的组件省略此行）
-#   ③ 安装方式  gpuenv_<组件>_install_mode：online=在线 / package=离线
-#   ④ 离线包    gpuenv_<组件>_package（仅 package 方式生效；支持本地路径或 URL）
-# 选在线：③ 填 online，④ 保持注释；选离线：③ 填 package，④ 取消注释并填写路径。
+#===============================================================================
+# 配置规范：每个组件块按固定四要素顺序配置
+#   ① 版本      gpuenv_<组件>_version      （无版本概念的组件省略此行）
+#   ② 安装方式  gpuenv_<组件>_install_mode  online=在线 / package=离线
+#   ③ 在线地址  gpuenv_<组件>_url           仅【URL】直链类组件有此行（见下方在线机制总表）；
+#                                           【apt】类组件在线走软件源（共用
+#                                           gpuenv_repo_base_url，见 vars/gpuenv_repos.yml），无独立 URL
+#   ④ 离线地址  gpuenv_<组件>_package       仅 package 方式生效；本地路径或离线包 URL 二选一
+#                                           （两种写法见各组件块内的注释示例）
+# 选在线：② 填 online；选离线：② 填 package 并填写 ④。
+#
+# OFED 组件另有第 ⑤ 要素：驱动 flavor（gpuenv_ofed_flavor，mlnx_ofed / doca_ofed 二选一）
+#-------------------------------------------------------------------------------
+# 在线机制总表（online 方式各组件实际走什么通道）：
+#   【apt】apt 软件源安装：
+#     driver / cuda / fabricmanager / nccl / dcgm / container_toolkit
+#     ofed（gpuenv_ofed_flavor=mlnx_ofed 时装 Ubuntu 原生 rdma-core）
+#   【URL】直链下载：
+#     openmpi / nccl_tests / gpu_burn（下载源码包后编译安装）
+#   【URL+apt】两段式：
+#     ofed（gpuenv_ofed_flavor=doca_ofed 时按 gpuenv_ofed_version 自动配置 DOCA
+#     官方源——下载 GPG 密钥 + 写 doca.list，随后仍由 apt 安装 doca-ofed 元包）
+#     nvshmem（按版本下载 local-repo 引导 deb 建本地 apt 仓库，随后由 apt 安装
+#     nvshmem-cuda-<CUDA 大版本>）
 #===============================================================================
 
 #===============================================================================
-# MLNX OFED / RDMA 栈（须先于驱动安装）
+# IB 网络驱动（须先于 GPU 驱动安装）
+# ⑤ 驱动 flavor 二选一：
+#   mlnx_ofed：传统 MLNX_OFED      online=【apt】原生 rdma-core；package=官方 tgz 安装器
+#   doca_ofed：DOCA-Host（继任者） online=【URL+apt】按版本自动配置 DOCA 官方源（下载 GPG 密钥 +
+#                                  写 /etc/apt/sources.list.d/doca.list），apt 安装 doca-ofed；
+#                                  等价官方 doca-host 引导 deb 方式；package=本地 deb 目录全量安装
+# ① 版本语义：mlnx_ofed=OFED 版本（如 23.10-2.1.3.1，ofed_info 校验，online 模式不参与）
+#            doca_ofed=DOCA 发行版本（如 3.2.2，官方源按其拼接 .../doca/3.2.2/ubuntu22.04/x86_64/）
 #===============================================================================
 gpuenv_install_ofed: true
-gpuenv_ofed_version: "23.10-2.1.3.1"       # package 方式安装后校验用；online 方式装 rdma-core 与此无关
-gpuenv_ofed_install_mode: package          # online=Ubuntu 原生 rdma-core / package=官方 MLNX_OFED tgz 安装器
+gpuenv_ofed_flavor: doca_ofed
+gpuenv_ofed_version: "3.2.2"        # doca_ofed 示例："3.2.2"
+gpuenv_ofed_install_mode: package           # online / package
+                                            # ③ 在线地址：doca_ofed+online 无需配置（按版本自动
+                                            #   拼接 DOCA 官方源，基址见 gpuenv_repos.yml）
 gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-23.10-2.1.3.1-ubuntu22.04-x86_64.tgz
-                                            # 离线 tgz（本地路径，与下行远程 URL 二选一）
+                                            # ④ 离线地址（mlnx_ofed=tgz 安装器；本地路径，
+                                            #   与下行离线包 URL 二选一）
 #gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-23.10-2.1.3.1/MLNX_OFED_LINUX-23.10-2.1.3.1-ubuntu22.04-x86_64.tgz"
+#gpuenv_ofed_package: /opt/packages/doca-debs
+                                            # ④ 离线地址（doca_ofed=存放 doca-ofed 元包及
+                                            #   全部依赖 deb 的本地目录，内容可从 DOCA 官方源
+                                            #   .../doca/3.2.2/ubuntu22.04/x86_64/ 全量下载）
 
 #===============================================================================
-# NVIDIA GPU 驱动
+# NVIDIA GPU 驱动【在线：apt】
 #===============================================================================
 gpuenv_install_driver: true
-gpuenv_driver_version: "580.178.04"
-gpuenv_driver_install_mode: online         # online=apt cuda 源 / package=离线 .run 包
+gpuenv_driver_version: "580.178.04"         # ① 版本
+gpuenv_driver_install_mode: online          # ② online=【apt】cuda 源 / package=离线 .run 包
+                                            # ③ 在线地址：apt 源（gpuenv_repo_base_url，见 gpuenv_repos.yml）
 #gpuenv_driver_package: /opt/packages/NVIDIA-Linux-x86_64-580.178.04.run
+                                            # ④ 离线地址（.run 本地路径或 URL）
 
 #===============================================================================
-# CUDA Toolkit
+# CUDA Toolkit【在线：apt】
 #===============================================================================
 gpuenv_install_cuda: true
-gpuenv_cuda_version: "13.0.2"              # online 匹配 cuda-toolkit-13-0
-gpuenv_cuda_install_mode: online           # online=apt cuda 源 / package=离线 .run 包
+gpuenv_cuda_version: "13.0.2"               # ① online 匹配 cuda-toolkit-13-0
+gpuenv_cuda_install_mode: online            # ② online=【apt】cuda 源 / package=离线 .run 包
+                                            # ③ 在线地址：apt 源（gpuenv_repo_base_url，见 gpuenv_repos.yml）
 #gpuenv_cuda_package: /opt/packages/cuda_13.0.2_580.95.05_linux.run
+                                            # ④ 离线地址（.run 本地路径，或官方归档直链 URL）
+#gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
 
 #===============================================================================
-# nvidia-fabricmanager（版本须与驱动完全一致）
+# nvidia-fabricmanager（版本须与驱动完全一致）【在线：apt】
 #===============================================================================
 gpuenv_install_fabricmanager: true
-gpuenv_fm_version: "580.178.04"                      # 留空 = 与驱动版本一致（580.178.04）
-gpuenv_fm_install_mode: online             # online=apt cuda 源 / package=离线 deb
+gpuenv_fm_version: "580.178.04"             # ① 留空 = 与驱动版本一致
+gpuenv_fm_install_mode: online              # ② online=【apt】cuda 源 / package=离线 deb
+                                            # ③ 在线地址：apt 源（gpuenv_repo_base_url，见 gpuenv_repos.yml）
 #gpuenv_fm_package: /opt/packages/nvidia-fabricmanager_580.178.04-1ubuntu1_amd64.deb
+                                            # ④ 离线地址（deb 本地路径或 URL）
 
 #===============================================================================
-# NCCL + OpenMPI + nccl-tests（gpuenv_install_nccl 一个开关控制三件套）
+# NCCL + OpenMPI + nccl-tests 三件套（gpuenv_install_nccl 一个开关控制）
+#   NCCL 库    【在线：apt】        OpenMPI   【在线：URL 直链】   nccl-tests 【在线：URL 直链】
 #===============================================================================
 gpuenv_install_nccl: true
-# —— NCCL 库 ——
-gpuenv_nccl_version: "2.28.9"              # online 匹配源中 2.28.9-1+cuda13.0；离线 deb 获取页：
-                                            # https://developer.nvidia.com/nccl/nccl-download
-gpuenv_nccl_install_mode: online           # online=apt 源 / package=离线 deb 包目录
-#gpuenv_nccl_package: /opt/packages/nccl-debs    # 存放 libnccl2/libnccl-dev deb 包的目录
-# —— OpenMPI（源码编译；无 install_mode 变量：本地源码包路径留空 = 在线下载直链，填路径 = 离线）——
-gpuenv_openmpi_version: "4.1.8"
-gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.8.tar.gz"
-#gpuenv_openmpi_src_package: /opt/packages/openmpi-4.1.8.tar.gz    # 取消注释即优先于 url 使用本地包
-# —— nccl-tests（源码编译；同样无 install_mode 变量：离线 zip 路径留空 = 在线下载）——
-gpuenv_nccl_tests_src_package: /opt/packages/nccl-tests-src.zip    # 支持通配符（如 nccl-tests*.zip）；裸文件名按 /opt/packages 解析
+# —— NCCL 库（apt / 离线 deb 目录）——
+gpuenv_nccl_version: "2.28.9"               # ① online 匹配源中 2.28.9-1+cuda13.0；离线 deb 获取页：
+                                            #   https://developer.nvidia.com/nccl/nccl-download
+gpuenv_nccl_install_mode: online            # ② online=【apt】cuda 源 / package=离线 deb 包目录
+                                            # ③ 在线地址：apt 源（gpuenv_repo_base_url，见 gpuenv_repos.yml）
+#gpuenv_nccl_package: /opt/packages/nccl-debs    # ④ 离线地址（存放 libnccl2/libnccl-dev deb 的目录）
+# —— OpenMPI（源码编译）——
+gpuenv_openmpi_version: "4.1.8"             # ① 版本（源码包与安装目录均按此命名）
+gpuenv_openmpi_install_mode: online         # ② online=【URL】直链下载 / package=离线源码包
+gpuenv_openmpi_url: "https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.8.tar.gz"
+                                            # ③ 在线地址（URL 直链）
+#gpuenv_openmpi_package: /opt/packages/openmpi-4.1.8.tar.gz
+                                            # ④ 离线地址（tar.gz 本地路径或 URL）
+# —— nccl-tests（源码编译，跟随 master 分支无版本号）——
+gpuenv_nccl_tests_install_mode: package     # ② online=【URL】直链下载 / package=离线 zip
+#gpuenv_nccl_tests_url: "https://ghproxy.net/https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
+                                            # ③ 在线地址（URL 直链；默认值见 gpuenv_repos.yml）
+gpuenv_nccl_tests_package: /opt/packages/nccl-tests-src.zip
+                                            # ④ 离线地址（支持通配符如 nccl-tests*.zip；
+                                            #   裸文件名按 /opt/packages 解析；或 URL）
 
 #===============================================================================
-# nvidia_peermem（GPUDirect RDMA；模块随驱动编译，仅做加载与开机自启，无在线/离线之分）
+# NVSHMEM 多 GPU/多节点通信库【URL+apt】（依赖 GPU 驱动 + CUDA）
+# 安装机制：引导 deb（建立本地 apt 仓库）→ 拷 keyring → apt 装 nvshmem-cuda-<大版本>
+# 同时写入 NVSHMEM 要求的 nvidia 驱动参数（/etc/modprobe.d/nvidia.conf，重启后生效）
+#===============================================================================
+gpuenv_install_nvshmem: true
+gpuenv_nvshmem_version: "3.7.2"              # ① NVSHMEM 版本（引导包与 apt 包版本一致）
+gpuenv_nvshmem_install_mode: online          # ② online=【URL+apt】/ package=离线引导 deb
+                                            # ③ 在线地址：按版本自动拼接（gpuenv_nvshmem_repo_base）
+#gpuenv_nvshmem_package: /opt/packages/nvshmem-local-repo-ubuntu2204-3.7.2_3.7.2-1_amd64.deb
+                                            # ④ 离线地址（引导 deb 本地路径或 URL）
+
+#===============================================================================
+# nvidia_peermem（GPUDirect RDMA；模块随驱动编译，仅加载与开机自启，无在线/离线包）
 #===============================================================================
 gpuenv_install_peermem: true
 
 #===============================================================================
-# 关闭 PCI ACS（多机通信要求；内置脚本，无安装包）
+# 关闭 PCI ACS（多机通信要求；内置脚本幂等落盘，无在线/离线包）
 #===============================================================================
 gpuenv_install_pci_acs: true
 
 #===============================================================================
-# gpu-burn GPU 压力测试（源码编译，跟随 master 分支无版本号）
+# gpu-burn GPU 压力测试（源码编译，跟随 master 分支无版本号）【在线：URL 直链】
 #===============================================================================
 #gpuenv_install_gpu_burn: true
-#gpuenv_gpu_burn_install_mode: online      # online=GitHub 直链 / package=离线 zip
-#gpuenv_gpu_burn_package: /opt/packages/gpu-burn-src.zip    # 内含 gpu-burn-master
+#gpuenv_gpu_burn_install_mode: online       # ② online=【URL】直链下载 / package=离线 zip
+#gpuenv_gpu_burn_url: "https://ghproxy.net/https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
+                                            # ③ 在线地址（URL 直链；默认值见 gpuenv_repos.yml）
+#gpuenv_gpu_burn_package: /opt/packages/gpu-burn-src.zip    # ④ 离线地址（内含 gpu-burn-master）
 
 #===============================================================================
-# DCGM 诊断监控
+# DCGM 诊断监控【在线：apt】
 #===============================================================================
 #gpuenv_install_dcgm: true
-#gpuenv_dcgm_install_mode: online          # online=apt 源 / package=离线 deb
+#gpuenv_dcgm_install_mode: online           # ② online=【apt】nvidia 官方源 / package=离线 deb
+                                            # ③ 在线地址：apt 源（见 gpuenv_repos.yml）
 #gpuenv_dcgm_package: /opt/packages/datacenter-gpu-manager_<版本>_amd64.deb
+                                            # ④ 离线地址（deb 本地路径或 URL）
 
 #===============================================================================
-# nvidia-container-toolkit（容器内使用 GPU；安装过程会重启 docker）
+# nvidia-container-toolkit（容器内使用 GPU；安装过程会重启 docker）【在线：apt】
 #===============================================================================
 #gpuenv_install_container_toolkit: true
-#gpuenv_container_toolkit_install_mode: online    # online=apt 源 / package=离线 deb
+#gpuenv_container_toolkit_install_mode: online    # ② online=【apt】nvidia 官方源 / package=离线 deb
+                                            # ③ 在线地址：apt 源（见 gpuenv_repos.yml）
 #gpuenv_container_toolkit_package: /opt/packages/nvidia-container-toolkit_<版本>-1_amd64.deb
+                                            # ④ 离线地址（deb 本地路径或 URL）
 
 #===============================================================================
 # 行为开关
 #===============================================================================
 # gpuenv_force: false                      # 忽略已安装检测，强制重装
 gpuenv_reboot_after_driver: false          # 驱动安装后自动重启（加载内核模块），关闭后需手动重启
-# gpuenv_apt_hold: true                    # 安装后 apt-mark hold 驱动/CUDA/fabricmanager/NCCL 的包，
-                                            # 防止 apt upgrade 意外升级版本联动组件（默认开启；
-                                            # 重装/升级版本/卸载前自动解除，设 false 关闭此保护）
+# gpuenv_apt_hold: true                    # 安装后 apt-mark hold 驱动/CUDA/fabricmanager/NCCL/
+                                            # doca-ofed 的包，防止 apt upgrade 意外升级版本联动组件
+                                            # （默认开启；重装/升级版本/卸载前自动解除，设 false 关闭）
 
 #===============================================================================
 # 卸载配置（供 uninstall.yml 读取）

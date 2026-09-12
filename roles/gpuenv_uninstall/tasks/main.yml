@@ -9,7 +9,7 @@
 #
 # 组件名：
 #   核心：driver / cuda / fabricmanager / gpu_burn
-#   可选：nccl / openmpi / nccl_tests / dcgm / container_toolkit / ofed / peermem / pci_acs
+#   可选：nccl / openmpi / nccl_tests / dcgm / container_toolkit / ofed / peermem / pci_acs / nvshmem
 #
 # 用法示例：
 #   ansible-playbook -i inventory.ini uninstall.yml                                    # 卸载核心组件
@@ -26,7 +26,7 @@
 # 与 gpuenv role 的锁定范围保持一致（按包名前缀匹配）
 - name: 解除 GPU 相关包的 hold 标记（卸载前）
   shell: |
-    held=$(apt-mark showhold 2>/dev/null | grep -E '^(nvidia-|libnvidia-|cuda|xserver-xorg-video-nvidia|libnccl|datacenter-gpu-manager)' || true)
+    held=$(apt-mark showhold 2>/dev/null | grep -E '^(nvidia-|libnvidia-|cuda|xserver-xorg-video-nvidia|libnccl|datacenter-gpu-manager|doca-|nvshmem)' || true)
     if [ -n "$held" ]; then
       apt-mark unhold $held
     else
@@ -151,19 +151,75 @@
   failed_when: false
   when: "'container_toolkit' in gpuenv_uninstall_selected"
 
-#=============================== ofed ===========================================
-- name: 卸载 MLNX OFED（优先使用官方 ofed_uninstall）
+#=============================== nvshmem ========================================
+# 卸载 nvshmem 包（含引导 local-repo 仓库包）并清理：
+#   - 引导仓库目录 /var/nvshmem-local-repo-*
+#   - 组件维护的 nvidia 驱动参数 /etc/modprobe.d/nvidia.conf（仅含本组件参数时删除）
+- name: 卸载 nvshmem 包与本地仓库
   shell: |
+    pkgs=$(dpkg -l | grep -E "^ii\s+nvshmem" | awk '{print $2}' | tr '\n' ' ')
+    [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "nvshmem 未安装，跳过"
+    rm -rf /var/nvshmem-local-repo-* 2>/dev/null || true
+  register: uninstall_nvshmem
+  changed_when: "'Removing' in uninstall_nvshmem.stdout or 'Purging' in uninstall_nvshmem.stdout"
+  failed_when: false
+  when: "'nvshmem' in gpuenv_uninstall_selected"
+
+- name: 清理 nvshmem 驱动参数（仅含本组件参数时删除 /etc/modprobe.d/nvidia.conf）
+  shell: |
+    if [ -f /etc/modprobe.d/nvidia.conf ] && grep -q 'NVreg_EnableStreamMemOPs' /etc/modprobe.d/nvidia.conf; then
+      rm -f /etc/modprobe.d/nvidia.conf
+      update-initramfs -u >/dev/null 2>&1 || true
+      echo "nvidia.conf 已删除"
+    else
+      echo "无 nvshmem 驱动参数配置，跳过"
+    fi
+  register: uninstall_nvshmem_modprobe
+  changed_when: "'已删除' in uninstall_nvshmem_modprobe.stdout"
+  failed_when: false
+  when: "'nvshmem' in gpuenv_uninstall_selected"
+
+#=============================== ofed ===========================================
+# 兼容两种 flavor：
+#   mlnx_ofed：优先官方 ofed_uninstall（tgz 安装器自带），缺失时 dpkg 兜底清包
+#   doca_ofed：DOCA-Host 与 MLNX_OFED 包结构一致，同样优先 ofed_uninstall，
+#              兜底正则额外覆盖 doca- 前缀（doca-ofed 元包 / doca-host 源配置器）
+# 注意：重装 OFED/DOCA 无需卸载 GPU 驱动（两套独立内核模块栈）。但 nvidia_peermem
+#       引用 ib_core 符号，若仍处于加载状态会 hold 住 RDMA 内核模块导致卸载不净，
+#       故先 rmmod（未加载/未装 GPU 驱动时该命令幂等无害）
+- name: 卸载 OFED 驱动（mlnx_ofed / doca_ofed，优先使用官方 ofed_uninstall）
+  shell: |
+    rmmod nvidia_peermem 2>/dev/null || true
     if command -v ofed_uninstall >/dev/null 2>&1; then
       ofed_uninstall --force 2>&1 | tail -n 3
     else
-      pkgs=$(dpkg -l | grep -E "^ii\s+(rdma-core|ibverbs-providers|ibverbs-utils|infiniband-diags|perftest|libibverbs-dev|librdmacm-dev|mlnx-|ibacm|opensm)" | awk '{print $2}' | tr '\n' ' ')
+      pkgs=$(dpkg -l | grep -E "^ii\s+(rdma-core|ibverbs-providers|ibverbs-utils|infiniband-diags|perftest|libibverbs-dev|librdmacm-dev|mlnx-|ibacm|opensm|doca-)" | awk '{print $2}' | tr '\n' ' ')
       [ -n "$pkgs" ] && apt-get remove -y --purge $pkgs || echo "OFED/RDMA 未安装，跳过"
     fi
   register: uninstall_ofed
   changed_when: true
   failed_when: false
   when: "'ofed' in gpuenv_uninstall_selected"
+
+- name: 卸载 doca-host 源配置器并清理 DOCA apt 源与 GPG 密钥（仅 doca_ofed flavor）
+  shell: |
+    if dpkg -l 2>/dev/null | grep -qE "^ii\s+doca-host"; then
+      apt-get remove -y --purge doca-host || true
+    else
+      echo "doca-host 未安装，跳过"
+    fi
+    rm -f /etc/apt/sources.list.d/*doca*.list /etc/apt/sources.list.d/*doca*.sources \
+          /etc/apt/sources.list.d/*mellanox*.list /etc/apt/sources.list.d/*mellanox*.sources \
+          /etc/apt/trusted.gpg.d/*mellanox* /etc/apt/trusted.gpg.d/*Mellanox* \
+          /usr/share/keyrings/*mellanox* /usr/share/keyrings/*Mellanox* 2>/dev/null || true
+    apt-get update -qq >/dev/null 2>&1 || true
+    echo "DOCA 源与密钥清理完成"
+  register: uninstall_doca_repo
+  changed_when: true
+  failed_when: false
+  when:
+    - "'ofed' in gpuenv_uninstall_selected"
+    - gpuenv_ofed_flavor | default('mlnx_ofed') == 'doca_ofed'
 
 #=============================== peermem ========================================
 - name: 卸载 nvidia_peermem 模块并删除开机自动加载配置
@@ -211,7 +267,7 @@
     daemon_reload: yes
 
 - name: 验证卸载结果
-  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|xserver-xorg-video-nvidia|cuda|libnccl|datacenter-gpu-manager)" | awk '{print $2}' || true
+  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|xserver-xorg-video-nvidia|cuda|libnccl|datacenter-gpu-manager|doca-)" | awk '{print $2}' || true
   register: uninstall_verify
   changed_when: false
   check_mode: no

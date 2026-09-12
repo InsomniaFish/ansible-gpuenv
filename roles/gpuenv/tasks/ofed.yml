@@ -1,34 +1,66 @@
 ---
-# IB 网络驱动：MLNX OFED / RDMA 栈安装（必须在 GPU 驱动之前执行）
-# MLNX OFED 离线安装（版本见 vars/gpuenv_repos.yml）
-# 启用方式：-e gpuenv_install_ofed=true
-# 安装模式（gpuenv_ofed_install_mode）：
-#   - online（默认，在线）：apt 安装 Ubuntu 原生 RDMA 栈（rdma-core 等），
-#     内核自带 mlx5 驱动，适用于大多数场景
-#   - package（离线/精确版本）：使用官方 MLNX_OFED tgz 安装器，
-#     通过 -e gpuenv_ofed_package=<MLNX_OFED_LINUX-xxx.tgz 路径或 URL> 指定
-# 说明：NVIDIA 官方 OFED apt 仓库（linux.mellanox.com）实测无法通过 apt 拉取，故不支持
-# 官方下载：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+# IB 网络驱动：MLNX_OFED / DOCA-OFED / RDMA 栈安装（必须在 GPU 驱动之前执行）
+# 两个配置维度自由组合：flavor（gpuenv_ofed_flavor）x install_mode（gpuenv_ofed_install_mode）
+#
+# flavor = mlnx_ofed（传统 MLNX_OFED）：
+#   - online 【apt】  ：apt 安装 Ubuntu 原生 RDMA 栈（rdma-core 等，内核自带 mlx5 驱动）
+#   - package【tgz】  ：官方 MLNX_OFED tgz 安装器（gpuenv_ofed_package，本地路径或 URL）
+# flavor = doca_ofed（DOCA-Host，MLNX_OFED 继任者，同驱动/库/工具）：
+#   - online 【URL+apt】：按 gpuenv_ofed_version（DOCA 发行版本，如 3.2.2）自动配置 DOCA
+#                         官方 apt 源（下载 GPG 密钥 + 写 /etc/apt/sources.list.d/doca.list），
+#                         再 apt 安装 doca-ofed 元包（与官方 doca-host 引导 deb 方式等价）
+#   - package【deb 目录】：gpuenv_ofed_package 指向本地目录（内含 doca-ofed 元包及全部依赖 deb）
+#
+# 版本（gpuenv_ofed_version）语义随 flavor 变化：
+#   - mlnx_ofed：OFED 版本号（如 23.10-2.1.3.1），ofed_info 校验；online 模式不参与
+#   - doca_ofed：DOCA 发行版本（如 3.2.2），官方源按其拼接（.../doca/3.2.2/ubuntu22.04/x86_64/），
+#                dpkg 安装版本前缀校验（如 3.2.2-035000-25.10）
+#
+# 说明：MLNX_OFED 的官方 apt 仓库（linux.mellanox.com）实测无法直接通过 apt 拉取，
+#       故 mlnx_ofed 的 online 模式安装 Ubuntu 原生 rdma-core
+
+#=============================== 参数校验 ===============================
+- name: 校验 OFED flavor 与 install_mode 取值
+  fail:
+    msg: >-
+      配置不合法：gpuenv_ofed_flavor={{ gpuenv_ofed_flavor }}（允许 mlnx_ofed / doca_ofed），
+      gpuenv_ofed_install_mode={{ gpuenv_ofed_install_mode }}（允许 online / package）
+  when: >-
+    gpuenv_ofed_flavor not in ['mlnx_ofed', 'doca_ofed']
+    or gpuenv_ofed_install_mode not in ['online', 'package']
+  tags: [gpuenv, ofed]
 
 - name: package 模式校验安装包参数
   fail:
     msg: >-
-      gpuenv_ofed_install_mode=package 但未提供安装包，请通过
-      -e gpuenv_ofed_package=<MLNX_OFED_LINUX-xxx.tgz 路径或 URL> 指定
+      gpuenv_ofed_install_mode=package 但未提供安装包：
+      flavor=mlnx_ofed 需 gpuenv_ofed_package=<MLNX_OFED_LINUX-xxx.tgz 路径或 URL>；
+      flavor=doca_ofed 需 gpuenv_ofed_package=<存放 doca-ofed 及全部依赖 deb 的本地目录>
   when:
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_package | length == 0
   tags: [gpuenv, ofed]
 
-#=============================== online 在线模式 ================================
-# apt 安装 Ubuntu 原生 RDMA 栈（rdma-core + mlx5 用户态驱动 + 诊断/测试工具）
+- name: doca_ofed 模式校验版本参数
+  fail:
+    msg: >-
+      flavor=doca_ofed 需通过 gpuenv_ofed_version 提供 DOCA 发行版本（如 3.2.2），
+      用于自动拼接官方源 {{ gpuenv_doca_repo_base | default('https://linux.mellanox.com/public/repo/doca') }}/<版本>/ubuntu22.04/x86_64/
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_version | length == 0
+  tags: [gpuenv, ofed]
+
+#=============== mlnx_ofed · online【apt】：Ubuntu 原生 RDMA 栈 ===============
 
 - name: 刷新软件源缓存（允许第三方源偶发失败）
   shell: apt-get update -y
   register: ofed_apt_update
   changed_when: false
   failed_when: false
-  when: gpuenv_ofed_install_mode == 'online'
+  when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
+    - gpuenv_ofed_install_mode == 'online'
   args:
     warn: false
   tags: [gpuenv, ofed]
@@ -37,7 +69,9 @@
   apt:
     name: "{{ gpuenv_ofed_native_packages }}"
     state: present
-  when: gpuenv_ofed_install_mode == 'online'
+  when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
+    - gpuenv_ofed_install_mode == 'online'
   tags: [gpuenv, ofed]
 
 - name: 验证 ibv_devices 工具可用
@@ -45,7 +79,9 @@
   register: ibv_check
   changed_when: false
   failed_when: false
-  when: gpuenv_ofed_install_mode == 'online'
+  when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
+    - gpuenv_ofed_install_mode == 'online'
   tags: [gpuenv, ofed]
 
 - name: online 模式安装结果提示
@@ -54,11 +90,12 @@
       RDMA 栈安装完成（rdma-core + 内核自带 mlx5 驱动）。
       {{ '检测到 IB 设备: ' + (ibv_check.stdout_lines[2:] | map('trim') | join(', ')) if (ibv_check.rc == 0 and ibv_check.stdout_lines | length > 2) else
          '未检测到 IB 设备（无 IB/RoCE 网卡时属正常，插入网卡后可用 ibv_devices 复查）' }}
-  when: gpuenv_ofed_install_mode == 'online'
+  when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
+    - gpuenv_ofed_install_mode == 'online'
   tags: [gpuenv, ofed]
 
-#=============================== package 离线模式 ================================
-# 使用官方 MLNX_OFED tgz 安装器（严格匹配基线版本）
+#=============== mlnx_ofed · package【tgz】：MLNX_OFED 安装器 ===============
 
 - name: 检查 OFED 是否已安装（ofed_info）
   shell: ofed_info -s 2>/dev/null | head -n 1
@@ -66,7 +103,9 @@
   changed_when: false
   failed_when: false
   check_mode: no
-  when: gpuenv_ofed_install_mode == 'package'
+  when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
+    - gpuenv_ofed_install_mode == 'package'
   tags: [gpuenv, ofed]
 
 - name: 设置 OFED 是否需要安装
@@ -75,13 +114,16 @@
       {{ gpuenv_force
          or ofed_installed.rc != 0
          or gpuenv_ofed_version not in (ofed_installed.stdout | default('')) }}
-  when: gpuenv_ofed_install_mode == 'package'
+  when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
+    - gpuenv_ofed_install_mode == 'package'
   tags: [gpuenv, ofed]
 
 - name: OFED 已安装且版本一致，跳过
   debug:
     msg: "OFED 已安装: {{ ofed_installed.stdout | trim }}，跳过"
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - not gpuenv_ofed_need_install
   tags: [gpuenv, ofed]
@@ -92,6 +134,7 @@
     dest: "{{ gpuenv_pkg_dir }}/mlnx_ofed.tgz"
     mode: '0644'
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
     - gpuenv_ofed_package is match('^https?://')
@@ -103,6 +146,7 @@
     dest: "{{ gpuenv_pkg_dir }}/mlnx_ofed.tgz"
     mode: '0644'
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
     - gpuenv_ofed_package is not match('^https?://')
@@ -116,6 +160,7 @@
   changed_when: false
   failed_when: false
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
   tags: [gpuenv, ofed]
@@ -126,6 +171,7 @@
       {{ gpuenv_pkg_dir }}/mlnx_ofed.tgz 不是有效的 gzip 压缩包（可能下载不完整或已损坏），
       请删除后重试，或更换 gpuenv_ofed_package 安装包来源
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
     - ofed_pkg_check.rc != 0
@@ -140,6 +186,7 @@
       - lsof
     state: present
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
   tags: [gpuenv, ofed]
@@ -150,6 +197,7 @@
     dest: "{{ gpuenv_pkg_dir }}"
     remote_src: yes
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
   tags: [gpuenv, ofed]
@@ -159,6 +207,7 @@
   register: ofed_dir
   changed_when: false
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
   tags: [gpuenv, ofed]
@@ -168,6 +217,7 @@
     {{ ofed_dir.stdout }}/mlnxofedinstall
     --add-kernel-support --without-fw-update --force
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
   tags: [gpuenv, ofed]
@@ -181,6 +231,7 @@
   failed_when: false
   check_mode: no
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
   tags: [gpuenv, ofed]
@@ -191,6 +242,148 @@
       {{ 'OFED 安装完成: ' + (ofed_verify.stdout | trim) if (ofed_verify.rc | default(1) == 0) else
          'OFED 安装后未检测到 ofed_info，请手动检查（无 IB 网卡时部分功能不可用属正常）' }}
   when:
+    - gpuenv_ofed_flavor == 'mlnx_ofed'
     - gpuenv_ofed_install_mode == 'package'
     - gpuenv_ofed_need_install | default(true)
+  tags: [gpuenv, ofed]
+
+#============ doca_ofed：DOCA-Host（apt 元包 doca-ofed）============
+
+- name: 检查 doca-ofed 是否已安装（dpkg）
+  shell: dpkg-query -W -f='${Status} ${Version}' doca-ofed 2>/dev/null
+  register: doca_ofed_installed
+  changed_when: false
+  failed_when: false
+  check_mode: no
+  when: gpuenv_ofed_flavor == 'doca_ofed'
+  tags: [gpuenv, ofed]
+
+- name: 设置 doca-ofed 是否需要安装
+  set_fact:
+    gpuenv_ofed_need_install: >-
+      {{ gpuenv_force
+         or doca_ofed_installed.rc != 0
+         or 'install ok installed' not in doca_ofed_installed.stdout
+         or not ((doca_ofed_installed.stdout | default('') | trim).split() | last).startswith(gpuenv_ofed_version) }}
+  when: gpuenv_ofed_flavor == 'doca_ofed'
+  tags: [gpuenv, ofed]
+
+- name: doca-ofed 已安装且版本匹配，跳过
+  debug:
+    msg: "doca-ofed 已安装: {{ (doca_ofed_installed.stdout | trim).split() | last }}，跳过"
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - not gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+# ---------- doca_ofed · online【URL+apt：按版本自动配置 DOCA 官方源】----------
+# 等价官方手动方式：GPG 密钥导入 trusted.gpg.d + 写 sources.list.d/doca.list + apt install doca-ofed
+# （官方另一种方式是先安装 doca-host_<版本>-ubuntu2204_amd64.deb 引导包，其作用同样是写入此源配置）
+
+- name: 下载 DOCA 官方 GPG 密钥（转 binary keyring）
+  shell: >
+    curl -fsSL {{ gpuenv_doca_repo_base | default('https://linux.mellanox.com/public/repo/doca') }}/GPG-KEY-Mellanox.pub
+    | gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/GPG-KEY-Mellanox.gpg
+  args:
+    creates: /etc/apt/trusted.gpg.d/GPG-KEY-Mellanox.gpg
+    warn: false
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'online'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+- name: 配置 DOCA 官方 apt 源（DOCA {{ gpuenv_ofed_version }}）
+  copy:
+    dest: /etc/apt/sources.list.d/doca.list
+    content: >-
+      deb [signed-by=/etc/apt/trusted.gpg.d/GPG-KEY-Mellanox.gpg]
+      {{ gpuenv_doca_repo_base | default('https://linux.mellanox.com/public/repo/doca') }}/{{ gpuenv_ofed_version }}/{{ ansible_distribution | lower }}{{ ansible_distribution_version }}/{{ ansible_architecture }}/ ./
+    mode: '0644'
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'online'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+- name: 刷新软件源缓存（拉取 DOCA 源索引；允许第三方源偶发失败）
+  shell: apt-get update -y
+  register: doca_apt_update
+  changed_when: false
+  failed_when: false
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'online'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+- name: 安装 doca-ofed 元包（online 模式，版本由所选 DOCA 源决定，耗时较长）
+  apt:
+    name: doca-ofed
+    state: present
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'online'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+# ---------- doca_ofed · package【本地 deb 目录】----------
+
+- name: 解析 doca_ofed 本地 deb 目录包清单
+  set_fact:
+    doca_debs: "{{ query('fileglob', gpuenv_ofed_package ~ '/*.deb') | list }}"
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'package'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+- name: 本地 deb 目录缺少 doca-ofed 元包时报错（package 模式）
+  fail:
+    msg: >-
+      {{ gpuenv_ofed_package }} 中未找到 doca-ofed 元包 deb。
+      离线目录需包含 DOCA 源中 doca-ofed 元包及其后全部依赖 deb 包。
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'package'
+    - gpuenv_ofed_need_install
+    - doca_debs | select('search', '/doca-ofed_') | list | length == 0
+  tags: [gpuenv, ofed]
+
+- name: 安装 doca-ofed 与全部依赖 deb（package 模式，本地目录全量，耗时较长）
+  apt:
+    deb: "{{ item }}"
+  loop: "{{ doca_debs | sort }}"
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_install_mode == 'package'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+# ---------- doca_ofed · 验证（online / package 共用）----------
+
+- name: 验证 doca-ofed 安装结果（dpkg + ofed_info）
+  shell: |
+    dpkg-query -W -f='${Status} ${Version}' doca-ofed 2>/dev/null
+    echo "---"
+    ofed_info -s 2>/dev/null | head -n 1 || echo "ofed_info 不可用"
+  register: doca_verify
+  changed_when: false
+  failed_when: false
+  check_mode: no
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_need_install
+  tags: [gpuenv, ofed]
+
+- name: doca_ofed 安装结果提示
+  debug:
+    msg: >-
+      {{ 'DOCA-OFED 安装完成: doca-ofed ' ~ (doca_verify.stdout_lines[0] | default('') | trim)
+         ~ '（ofed_info: ' ~ (doca_verify.stdout_lines[2] | default('不可用') | trim) ~ '）'
+         if (doca_verify.rc | default(1) == 0 and 'install ok installed' in (doca_verify.stdout | default('')))
+         else 'DOCA-OFED 安装后未检测到 doca-ofed 包，请手动检查安装日志' }}
+  when:
+    - gpuenv_ofed_flavor == 'doca_ofed'
+    - gpuenv_ofed_need_install
   tags: [gpuenv, ofed]

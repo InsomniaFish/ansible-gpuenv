@@ -8,7 +8,7 @@
 
 - name: 解除 GPU 相关包的 hold 标记（幂等）
   shell: |
-    held=$(apt-mark showhold 2>/dev/null | grep -E '^(nvidia-|libnvidia-|cuda|xserver-xorg-video-nvidia|libnccl|datacenter-gpu-manager)' || true)
+    held=$(apt-mark showhold 2>/dev/null | grep -E '^(nvidia-|libnvidia-|cuda|xserver-xorg-video-nvidia|libnccl|datacenter-gpu-manager|doca-|nvshmem)' || true)
     if [ -n "$held" ]; then
       apt-mark unhold $held
     else
@@ -17,4 +17,4 @@
   register: gpuenv_unhold_release
   changed_when: "'Canceled hold' in gpuenv_unhold_release.stdout"
   failed_when: false
-  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl]
+  tags: [gpuenv, apt_hold, driver, cuda, fabricmanager, nccl, nvshmem]

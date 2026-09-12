@@ -22,4 +22,5 @@
       - "  NCCL + nccl-tests : {{ gpuenv_install_nccl }}{{ '（模式: ' + gpuenv_nccl_install_mode + '，NCCL: ' + gpuenv_nccl_version + '）' if gpuenv_install_nccl else '' }}"
       - "  DCGM              : {{ gpuenv_install_dcgm }}{{ '（模式: ' + gpuenv_dcgm_install_mode + '）' if gpuenv_install_dcgm else '' }}"
       - "  container-toolkit : {{ gpuenv_install_container_toolkit }}{{ '（模式: ' + gpuenv_container_toolkit_install_mode + '）' if gpuenv_install_container_toolkit else '' }}"
+      - "  NVSHMEM           : {{ gpuenv_install_nvshmem }}{{ '（模式: ' + gpuenv_nvshmem_install_mode + '，版本: ' + gpuenv_nvshmem_version + '）' if gpuenv_install_nvshmem else '' }}"
       - "强制重装: {{ gpuenv_force }}"

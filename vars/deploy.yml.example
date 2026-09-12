@@ -2,7 +2,7 @@
 #===============================================================================
 # 部署配置清单模板（deploy.yml.example）
 #
-# 作用：把"装哪些组件、什么模式、离线包在哪、版本多少"集中写在一个文件里，
+# 作用：把"装哪些组件、什么模式、版本多少、包在哪"集中写在一个文件里，
 #       避免每次执行都拼一长串 -e 参数。
 #
 # 使用方法：
@@ -16,17 +16,35 @@
 #   即：本文件可覆盖版本基线；命令行 -e 仍可临时覆盖本文件。
 #   本文件中未写的项，一律沿用默认值（默认不安装任何组件）。
 #
+# 配置规范（每组件四要素，顺序固定）：
+#   ① 版本 gpuenv_<组件>_version  ② 安装方式 gpuenv_<组件>_install_mode
+#   ③ 在线地址 gpuenv_<组件>_url（仅 URL 直链类；apt 类走软件源见 gpuenv_repos.yml；
+#      ofed 的 doca_ofed flavor 与 nvshmem 均按版本自动拼接，无需填写）
+#   ④ 离线地址 gpuenv_<组件>_package（本地路径或离线包 URL 二选一）
+#   OFED 另有 ⑤ 驱动 flavor（gpuenv_ofed_flavor：mlnx_ofed / doca_ofed 二选一）
+#
+# 在线机制总表：
+#   【apt】   driver / cuda / fabricmanager / nccl / dcgm / container_toolkit /
+#             ofed（flavor=mlnx_ofed 时装原生 rdma-core）
+#   【URL】   openmpi / nccl_tests / gpu_burn
+#   【URL+apt】ofed（flavor=doca_ofed：按版本自动配 DOCA 官方源，apt 拉 doca-ofed）
+#             nvshmem（按版本自动拼引导 deb URL，apt 拉 nvshmem-cuda-<大版本>）
+
 # 组件开关一览（完整说明见 README「组件列表」）：
 #   gpuenv_install_ofed / driver / peermem / pci_acs / cuda /
-#   fabricmanager / gpu_burn / nccl / dcgm / container_toolkit
+#   fabricmanager / gpu_burn / nccl / dcgm / container_toolkit / nvshmem
 #===============================================================================
 
 
 #===============================================================================
-# 场景 A：单机基础环境（在线安装驱动 + CUDA）
+# 场景 A：单机基础环境（在线安装驱动 + CUDA，均走【apt】）
 #===============================================================================
 # gpuenv_install_driver: true
+# gpuenv_driver_version: "580.178.04"
+# gpuenv_driver_install_mode: online
 # gpuenv_install_cuda: true
+# gpuenv_cuda_version: "13.0.2"
+# gpuenv_cuda_install_mode: online
 # # 驱动装完自动重启（加载内核模块，生产验收建议开启）
 # gpuenv_reboot_after_driver: true
 
@@ -34,50 +52,81 @@
 #===============================================================================
 # 场景 B：多机训练全套（在线安装，IB/RoCE + GPUDirect + 通信测试）
 #===============================================================================
-# gpuenv_install_ofed: true              # IB 网络驱动（须先于驱动安装）
-# gpuenv_install_driver: true
-# gpuenv_install_peermem: true           # GPUDirect RDMA
-# gpuenv_install_pci_acs: true           # 关闭 PCI ACS
-# gpuenv_install_cuda: true
-# gpuenv_install_fabricmanager: true     # NVLink 多卡互联（版本自动跟随驱动）
-# gpuenv_install_nccl: true              # NCCL + OpenMPI + nccl-tests
-# gpuenv_install_dcgm: true              # GPU 诊断监控
+# # —— IB 网络驱动（flavor=mlnx_ofed，online 装 Ubuntu 原生 rdma-core）——
+# gpuenv_install_ofed: true
+# gpuenv_ofed_flavor: mlnx_ofed
+# gpuenv_ofed_install_mode: online
+# # —— 或 flavor=doca_ofed（DOCA-Host，【URL+apt】按版本自动配 DOCA 官方源）——
+# # gpuenv_ofed_flavor: doca_ofed
+# # gpuenv_ofed_version: "3.2.2"               # DOCA 发行版本（源 URL 自动拼接，无需填 url）
+# # gpuenv_ofed_install_mode: online
+# # —— GPU 驱动（须在 OFED 之后）——
+# gpuenv_install_driver: true                  # 【apt】
+# gpuenv_install_peermem: true                 # GPUDirect RDMA
+# gpuenv_install_pci_acs: true                 # 关闭 PCI ACS
+# gpuenv_install_cuda: true                    # 【apt】
+# gpuenv_install_fabricmanager: true           # 【apt】NVLink 多卡互联（版本自动跟随驱动）
+# gpuenv_install_nccl: true                    # NCCL【apt】+ OpenMPI/nccl-tests【URL】
+# gpuenv_install_dcgm: true                    # 【apt】GPU 诊断监控
+# gpuenv_install_nvshmem: true                 # 【URL+apt】NVSHMEM 多机通信库（含驱动参数）
 # gpuenv_reboot_after_driver: true
 
 
 #===============================================================================
-# 场景 C：全离线安装（本地安装包，路径按实际修改）
+# 场景 C：全离线安装（package 模式，本地安装包路径按实际修改）
 #===============================================================================
 # gpuenv_install_driver: true
 # gpuenv_driver_install_mode: package
-# gpuenv_driver_package: /opt/packages/NVIDIA-Linux-x86_64-560.35.05.run
+# gpuenv_driver_package: /opt/packages/NVIDIA-Linux-x86_64-580.178.04.run
 #
 # gpuenv_install_cuda: true
 # gpuenv_cuda_install_mode: package
-# gpuenv_cuda_package: /opt/packages/cuda_12.6.2_560.35.03_linux.run
+# gpuenv_cuda_package: /opt/packages/cuda_13.0.2_580.95.05_linux.run
 #
+# # —— OFED 二选一 ——
+# # mlnx_ofed：官方 tgz 安装器
 # gpuenv_install_ofed: true
+# gpuenv_ofed_flavor: mlnx_ofed
+# gpuenv_ofed_version: "24.10-1.1.4.0"
 # gpuenv_ofed_install_mode: package
 # gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz
+# # doca_ofed：本地 deb 目录（含 doca-ofed 元包及全部依赖 deb，
+# # 可从 DOCA 官方源 .../doca/3.2.2/ubuntu22.04/x86_64/ 全量下载）
+# # gpuenv_install_ofed: true
+# # gpuenv_ofed_flavor: doca_ofed
+# # gpuenv_ofed_version: "3.2.2"
+# # gpuenv_ofed_install_mode: package
+# # gpuenv_ofed_package: /opt/packages/doca-debs
 #
-# gpuenv_install_nccl: true
+# gpuenv_install_nccl: true                    # 三件套可各自独立配置在线/离线
 # gpuenv_nccl_install_mode: package
-# gpuenv_nccl_package: /opt/packages/nccl-debs            # 存放 libnccl2/libnccl-dev deb 的目录
-# gpuenv_openmpi_src_package: /opt/packages/openmpi-4.1.5.tar.gz
-# gpuenv_nccl_tests_src_package: /opt/packages/nccl-tests-master.zip
+# gpuenv_nccl_package: /opt/packages/nccl-debs       # 存放 libnccl2/libnccl-dev deb 的目录
+# gpuenv_openmpi_install_mode: package
+# gpuenv_openmpi_package: /opt/packages/openmpi-4.1.8.tar.gz
+# gpuenv_nccl_tests_install_mode: package
+# gpuenv_nccl_tests_package: /opt/packages/nccl-tests-src.zip
+#
+# gpuenv_install_nvshmem: true
+# gpuenv_nvshmem_install_mode: package        # 离线引导 deb（可从官方源 .../local_installers/ 下载）
+# gpuenv_nvshmem_package: /opt/packages/nvshmem-local-repo-ubuntu2204-3.7.2_3.7.2-1_amd64.deb
 
 
 #===============================================================================
 # 常用可选项（按需追加到上方任一场景）
 #===============================================================================
 # --- 版本覆盖（不写则用 vars/gpuenv_repos.yml 中的基线版本） ---
-# gpuenv_driver_version: "560.35.05"
-# gpuenv_cuda_version: "12.6.2"
-# gpuenv_nccl_version: "2.23.4"
+# gpuenv_driver_version: "580.178.04"
+# gpuenv_cuda_version: "13.0.2"
+# gpuenv_nccl_version: "2.28.9"
+# gpuenv_openmpi_version: "4.1.8"
+# gpuenv_nvshmem_version: "3.7.2"
 #
 # --- 其他组件 ---
-# gpuenv_install_gpu_burn: true            # GPU 压力测试
-# gpuenv_install_container_toolkit: true   # 容器内使用 GPU（会重启 docker）
+# gpuenv_install_gpu_burn: true            # GPU 压力测试【URL】源码编译
+# gpuenv_gpu_burn_install_mode: online
+# gpuenv_install_container_toolkit: true   # 容器内使用 GPU（会重启 docker）【apt】
+# gpuenv_install_nvshmem: true             # NVSHMEM 多 GPU/多节点通信库【URL+apt】
+#                                         # （默认 online 自动拼官方源；modprobe 驱动参数随装）
 #
 # --- 行为开关 ---
 # gpuenv_force: false                      # 忽略已安装检测，强制重装

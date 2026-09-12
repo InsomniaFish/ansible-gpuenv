@@ -2,10 +2,9 @@
 # 可选组件：NCCL 库 + OpenMPI + nccl-tests（多卡通信与带宽测试）
 # 启用方式：-e gpuenv_install_nccl=true
 # 安装模式（支持混合使用）：
-#   - gpuenv_nccl_install_mode：NCCL 库安装方式
-#       online（默认）：apt 源安装；package：安装 gpuenv_nccl_package 目录下的 deb 包
-#   - OpenMPI / nccl-tests 源码：对应离线包变量留空则在线下载，
-#     提供本地包（gpuenv_openmpi_src_package / gpuenv_nccl_tests_src_package）则用本地包
+#   - gpuenv_nccl_install_mode     ：NCCL 库     online=apt 源 / package=本地 deb 目录
+#   - gpuenv_openmpi_install_mode  ：OpenMPI     online=URL 直链下载 / package=离线源码包
+#   - gpuenv_nccl_tests_install_mode：nccl-tests online=URL 直链下载 / package=离线 zip
 # 版本要求：NCCL 需与 CUDA 版本配套、OpenMPI 源码编译
 
 - name: 设置 CUDA 主次版本号（用于匹配 NCCL 包的 cuda 后缀，如 12.6）
@@ -91,25 +90,45 @@
   when: not gpuenv_force and openmpi_bin.stat.exists
   tags: [gpuenv, nccl]
 
-- name: 下载 OpenMPI 源码（在线，未提供本地源码包时）
+- name: package 模式校验 OpenMPI 安装包参数
+  fail:
+    msg: >-
+      gpuenv_openmpi_install_mode=package 但未提供安装包，请通过
+      gpuenv_openmpi_package=<本地 openmpi-x.y.z.tar.gz 路径或离线包 URL> 指定
+  when:
+    - gpuenv_openmpi_install_mode == 'package'
+    - gpuenv_openmpi_package | length == 0
+  tags: [gpuenv, nccl]
 
+- name: 下载 OpenMPI 源码（online 模式，URL 直链）
   get_url:
     url: "{{ gpuenv_openmpi_url }}"
     dest: "{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
     mode: '0644'
   when:
-    - gpuenv_openmpi_src_package | length == 0
+    - gpuenv_openmpi_install_mode == 'online'
     - gpuenv_force or not openmpi_bin.stat.exists
   tags: [gpuenv, nccl]
 
-- name: 拷贝本地 OpenMPI 源码包到安装包目录（提供本地源码包时）
-
-  copy:
-    src: "{{ gpuenv_openmpi_src_package }}"
+- name: 下载离线 OpenMPI 源码包（package 模式且离线地址为 URL）
+  get_url:
+    url: "{{ gpuenv_openmpi_package }}"
     dest: "{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
     mode: '0644'
   when:
-    - gpuenv_openmpi_src_package | length > 0
+    - gpuenv_openmpi_install_mode == 'package'
+    - gpuenv_openmpi_package is match('^https?://')
+    - gpuenv_force or not openmpi_bin.stat.exists
+  tags: [gpuenv, nccl]
+
+- name: 拷贝本地 OpenMPI 源码包到安装包目录（package 模式且离线地址为本地路径）
+  copy:
+    src: "{{ gpuenv_openmpi_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    mode: '0644'
+  when:
+    - gpuenv_openmpi_install_mode == 'package'
+    - gpuenv_openmpi_package is not match('^https?://')
     - gpuenv_force or not openmpi_bin.stat.exists
   tags: [gpuenv, nccl]
 
@@ -174,29 +193,51 @@
   when: not gpuenv_force and nccl_tests_bin.stat.exists
   tags: [gpuenv, nccl]
 
-- name: 下载 nccl-tests 源码（在线，未提供本地源码包时）
+- name: package 模式校验 nccl-tests 安装包参数
+  fail:
+    msg: >-
+      gpuenv_nccl_tests_install_mode=package 但未提供安装包，请通过
+      gpuenv_nccl_tests_package=<本地 zip 路径（支持通配符）或离线包 URL> 指定
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package | length == 0
+  tags: [gpuenv, nccl]
+
+- name: 下载 nccl-tests 源码（online 模式，URL 直链）
 
   get_url:
     url: "{{ gpuenv_nccl_tests_url }}"
     dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
     mode: '0644'
   when:
-    - gpuenv_nccl_tests_src_package | length == 0
+    - gpuenv_nccl_tests_install_mode == 'online'
     - gpuenv_force or not nccl_tests_bin.stat.exists
   tags: [gpuenv, nccl]
 
-- name: 解析 nccl-tests 本地源码包路径（支持通配符，如 nccl-tests*.zip）
+- name: 下载离线 nccl-tests 源码包（package 模式且离线地址为 URL）
+  get_url:
+    url: "{{ gpuenv_nccl_tests_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
+    mode: '0644'
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is match('^https?://')
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl]
+
+- name: 解析 nccl-tests 本地源码包路径（package 模式且离线地址为本地路径，支持通配符如 nccl-tests*.zip）
 
   set_fact:
     nccl_tests_pkg_glob: "{{ nccl_pkg_glob_expr }}"
     nccl_tests_pkg_file: "{{ query('fileglob', nccl_pkg_glob_expr) | first | default('') }}"
   vars:
     nccl_pkg_glob_expr: >-
-      {{ gpuenv_nccl_tests_src_package
-         if gpuenv_nccl_tests_src_package.startswith('/')
-         else gpuenv_pkg_dir ~ '/' ~ gpuenv_nccl_tests_src_package }}
+      {{ gpuenv_nccl_tests_package
+         if gpuenv_nccl_tests_package.startswith('/')
+         else gpuenv_pkg_dir ~ '/' ~ gpuenv_nccl_tests_package }}
   when:
-    - gpuenv_nccl_tests_src_package | length > 0
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is not match('^https?://')
     - gpuenv_force or not nccl_tests_bin.stat.exists
   tags: [gpuenv, nccl]
 
@@ -207,19 +248,20 @@
       支持通配符（如 {{ gpuenv_pkg_dir }}/nccl-tests*.zip，裸文件名按 {{ gpuenv_pkg_dir }} 解析），
       多个匹配时取字典序第一个。
   when:
-    - gpuenv_nccl_tests_src_package | length > 0
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is not match('^https?://')
     - gpuenv_force or not nccl_tests_bin.stat.exists
     - nccl_tests_pkg_file | default('') | length == 0
   tags: [gpuenv, nccl]
 
 - name: 拷贝本地 nccl-tests 源码包到安装包目录（支持通配符）
-
   copy:
     src: "{{ nccl_tests_pkg_file }}"
     dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
     mode: '0644'
   when:
-    - gpuenv_nccl_tests_src_package | length > 0
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is not match('^https?://')
     - gpuenv_force or not nccl_tests_bin.stat.exists
   tags: [gpuenv, nccl]
 
